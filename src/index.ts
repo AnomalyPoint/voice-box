@@ -117,7 +117,7 @@ async function playTextToSpeech(
 // Create MCP server instance
 const server = new Server(
   {
-    name: "ava-mcp",
+    name: "voice-box",
     version: "1.0.0",
   },
   {
@@ -216,7 +216,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  console.error("Ava MCP server running on stdio");
+  console.error("Voice Box MCP server running on stdio");
 }
 
 main().catch((error) => {
