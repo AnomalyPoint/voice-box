@@ -29,8 +29,35 @@ const RATE = 24000;
 const VALID_VOICES = ["alloy", "echo", "fable", "onyx", "nova", "shimmer"] as const;
 const VALID_MODELS = ["tts-1", "tts-1-hd"] as const;
 
+// OpenAI TTS text length limit
+const MAX_TEXT_LENGTH = 4096;
+
+// Request timeout (30 seconds)
+const REQUEST_TIMEOUT = 30000;
+
+// Maximum error message buffer size (10KB)
+const MAX_ERROR_BUFFER_SIZE = 10240;
+
+// Simple logging utility (logs to stderr to not interfere with MCP stdio)
+const log = (message: string, ...args: any[]) => {
+  const timestamp = new Date().toISOString();
+  console.error(`[${timestamp}] [Voice Box]`, message, ...args);
+};
+
 type Voice = typeof VALID_VOICES[number];
 type Model = typeof VALID_MODELS[number];
+
+/**
+ * Wraps a promise with a timeout
+ */
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) =>
+      setTimeout(() => reject(new Error(`Request timed out after ${timeoutMs}ms`)), timeoutMs)
+    ),
+  ]);
+}
 
 /**
  * Play audio stream through local speakers using ffmpeg and speaker
@@ -40,6 +67,7 @@ async function playTextToSpeech(
   voice: Voice = "alloy",
   model: Model = "tts-1"
 ): Promise<void> {
+  log(`Starting TTS: voice=${voice}, model=${model}, textLength=${text.length}`);
   return new Promise(async (resolve, reject) => {
     try {
       // Start ffmpeg process to decode MP3 to PCM
@@ -63,10 +91,17 @@ async function playTextToSpeech(
       // Pipe ffmpeg output to speaker
       ffmpeg.stdout.pipe(speaker);
 
-      // Handle ffmpeg errors
+      // Handle ffmpeg errors (limit buffer size to prevent memory issues)
       let ffmpegError = "";
       ffmpeg.stderr.on("data", (data) => {
-        ffmpegError += data.toString();
+        const chunk = data.toString();
+        if (ffmpegError.length + chunk.length <= MAX_ERROR_BUFFER_SIZE) {
+          ffmpegError += chunk;
+        } else if (ffmpegError.length < MAX_ERROR_BUFFER_SIZE) {
+          // Add what we can fit and append truncation notice
+          const remaining = MAX_ERROR_BUFFER_SIZE - ffmpegError.length;
+          ffmpegError += chunk.slice(0, remaining) + "\n...[error output truncated]";
+        }
       });
 
       ffmpeg.on("error", (error) => {
@@ -76,16 +111,22 @@ async function playTextToSpeech(
       ffmpeg.on("close", (code) => {
         if (code !== 0) {
           reject(new Error(`ffmpeg exited with code ${code}: ${ffmpegError}`));
-        } else {
-          resolve();
         }
+        // Don't resolve here - wait for speaker to finish
       });
 
       speaker.on("error", (error) => {
         reject(new Error(`Speaker error: ${error.message}`));
       });
 
+      // Resolve when speaker finishes playing audio
+      speaker.on("close", () => {
+        log("Audio playback completed");
+        resolve();
+      });
+
       // Get streaming response from OpenAI TTS
+      log("Requesting TTS from OpenAI API...");
       const response = await openai.audio.speech.create({
         model,
         voice,
@@ -99,15 +140,21 @@ async function playTextToSpeech(
         throw new Error("No audio stream received from OpenAI");
       }
 
-      // @ts-ignore - Node.js stream compatibility
+      // TypeScript doesn't recognize OpenAI's Response.body as async iterable,
+      // but it implements the AsyncIterator protocol at runtime.
+      // This is safe because OpenAI SDK returns a ReadableStream that supports async iteration.
+      // @ts-ignore - OpenAI Response.body async iteration not typed
+      log("Streaming audio data from OpenAI to ffmpeg...");
       for await (const chunk of stream) {
         ffmpeg.stdin.write(chunk);
       }
 
       // Close ffmpeg stdin to signal end of input
+      log("Audio stream complete, waiting for playback to finish...");
       ffmpeg.stdin.end();
 
     } catch (error) {
+      log("Error in playTextToSpeech:", error);
       reject(error);
     }
   });
@@ -175,6 +222,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         throw new Error("Text parameter is required and must be a string");
       }
 
+      if (text.length > MAX_TEXT_LENGTH) {
+        throw new Error(`Text too long. Maximum length is ${MAX_TEXT_LENGTH} characters (received ${text.length})`);
+      }
+
       if (voice && !VALID_VOICES.includes(voice)) {
         throw new Error(`Invalid voice. Must be one of: ${VALID_VOICES.join(", ")}`);
       }
@@ -183,8 +234,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         throw new Error(`Invalid model. Must be one of: ${VALID_MODELS.join(", ")}`);
       }
 
-      // Play the text to speech
-      await playTextToSpeech(text, voice, model);
+      // Play the text to speech with timeout
+      await withTimeout(playTextToSpeech(text, voice, model), REQUEST_TIMEOUT);
 
       return {
         content: [
