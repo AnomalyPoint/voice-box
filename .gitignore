@@ -1,6 +1,10 @@
 # Sensitive files - keep local
 .env
 CLAUDE.md
+.mcp.json
+
+# Claude Code local settings
+.claude/
 
 # Node/TypeScript
 node_modules/

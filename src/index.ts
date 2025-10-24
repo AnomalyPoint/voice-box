@@ -132,7 +132,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
     tools: [
       {
         name: "text_to_speech",
-        description: "Convert text to speech and play it through local speakers using OpenAI's TTS API. This tool speaks the provided text out loud on the user's computer.",
+        description: "Convert text to speech and play it through local speakers using OpenAI's TTS API. This tool allows AI agents to provide natural voice updates and communicate like human colleagues, creating a more collaborative interaction. The audio plays directly on the user's computer.",
         inputSchema: {
           type: "object",
           properties: {
