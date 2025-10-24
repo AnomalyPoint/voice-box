@@ -148,68 +148,40 @@ You should hear audio through your speakers!
 
 ### For Cursor
 
-**Step 1: Open Cursor Settings**
-
-1. Open Cursor
-2. Go to Settings (Cmd+, on Mac, Ctrl+, on Windows/Linux)
-3. Search for "MCP" or navigate to MCP settings
-
-**Step 2: Add Voice Box**
-
-Add this configuration:
-
-```json
-{
-  "voice-box": {
-    "command": "npx",
-    "args": ["-y", "git+https://github.com/AnomalyPoint/voice-box.git"],
-    "env": {
-      "OPENAI_API_KEY": "your-openai-api-key"
-    }
-  }
-}
-```
-
-**Step 3: Restart Cursor**
-
-**Step 4: Test**
-
-The `text_to_speech` tool should now be available in Cursor's AI features.
-
----
-
-### For Claude Code
-
 **Step 1: Create MCP Config File**
 
 <details>
-<summary><strong>macOS/Linux</strong></summary>
+<summary><strong>Project-Specific (Recommended for teams)</strong></summary>
+
+Create `.cursor/mcp.json` in your project root:
 
 ```bash
-# Create the config file if it doesn't exist
-mkdir -p ~/.config/claude-code
-touch ~/.config/claude-code/mcp.json
-
-# Open it with your preferred editor
-nano ~/.config/claude-code/mcp.json
-# or
-code ~/.config/claude-code/mcp.json
+mkdir -p .cursor
+touch .cursor/mcp.json
 ```
+
+This config will be shared with your team via version control.
 </details>
 
 <details>
-<summary><strong>Windows</strong></summary>
+<summary><strong>Global (Available in all projects)</strong></summary>
 
+**macOS/Linux:**
+```bash
+mkdir -p ~/.cursor
+touch ~/.cursor/mcp.json
 ```
-# Create the config file if it doesn't exist
-mkdir %USERPROFILE%\.config\claude-code
-notepad %USERPROFILE%\.config\claude-code\mcp.json
+
+**Windows:**
+```
+mkdir %USERPROFILE%\.cursor
+notepad %USERPROFILE%\.cursor\mcp.json
 ```
 </details>
 
 **Step 2: Add Voice Box Configuration**
 
-Add this to your `mcp.json` file:
+Add this to your MCP config file:
 
 ```json
 {
@@ -225,18 +197,80 @@ Add this to your `mcp.json` file:
 }
 ```
 
-**Step 3: Restart Claude Code**
-
-If you have Claude Code running, restart it to load the new MCP server.
+**Step 3: Restart Cursor**
 
 **Step 4: Test**
 
-In your terminal with Claude Code:
+The `text_to_speech` tool should now be available in Cursor's AI features.
+
+---
+
+### For Claude Code
+
+**Step 1: Create Project MCP Config**
+
+In your project root, create a `.mcp.json` file:
+
 ```bash
-claude-code
+# Create the config file
+touch .mcp.json
+
+# Open with your preferred editor
+code .mcp.json
+# or
+nano .mcp.json
 ```
 
-Then ask Claude to use the tool:
+> **Note:** Claude Code will prompt for approval before using project-scoped servers from `.mcp.json` files for security.
+
+**Step 2: Add Voice Box Configuration**
+
+Add this to your `.mcp.json` file:
+
+```json
+{
+  "mcpServers": {
+    "voice-box": {
+      "command": "npx",
+      "args": ["-y", "git+https://github.com/AnomalyPoint/voice-box.git"],
+      "env": {
+        "OPENAI_API_KEY": "${OPENAI_API_KEY}"
+      }
+    }
+  }
+}
+```
+
+> **Tip:** Use `${OPENAI_API_KEY}` to reference environment variables from your shell.
+
+**Step 3: Set Environment Variable**
+
+<details>
+<summary><strong>macOS/Linux</strong></summary>
+
+```bash
+# Add to your shell profile (~/.bashrc, ~/.zshrc, etc.)
+export OPENAI_API_KEY="your-api-key-here"
+
+# Or set for current session
+export OPENAI_API_KEY="your-api-key-here"
+```
+</details>
+
+<details>
+<summary><strong>Windows</strong></summary>
+
+```powershell
+# Set for current session
+$env:OPENAI_API_KEY="your-api-key-here"
+
+# Or set permanently via System Properties > Environment Variables
+```
+</details>
+
+**Step 4: Approve and Test**
+
+Start Claude Code and approve the MCP server when prompted, then ask:
 > "Use the text_to_speech tool to say 'Hello from Claude Code'"
 
 ---
