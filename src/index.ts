@@ -144,7 +144,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
               type: "string",
               description: "The voice to use for speech synthesis",
               enum: VALID_VOICES,
-              default: "alloy",
+              default: "onyx",
             },
             model: {
               type: "string",
