@@ -75,7 +75,85 @@ ffmpeg -version
 
 ## Installation & Setup
 
+### For Claude Code
+
+<details open>
+<summary><strong>Click to expand/collapse Claude Code setup</strong></summary>
+
+**Step 1: Create Project MCP Config**
+
+In your project root, create a `.mcp.json` file:
+
+```bash
+# Create the config file
+touch .mcp.json
+
+# Open with your preferred editor
+code .mcp.json
+# or
+nano .mcp.json
+```
+
+> **Note:** Claude Code will prompt for approval before using project-scoped servers from `.mcp.json` files for security.
+
+**Step 2: Add Voice Box Configuration**
+
+Add this to your `.mcp.json` file:
+
+```json
+{
+  "mcpServers": {
+    "voice-box": {
+      "command": "npx",
+      "args": ["-y", "git+https://github.com/AnomalyPoint/voice-box.git"],
+      "env": {
+        "OPENAI_API_KEY": "${OPENAI_API_KEY}"
+      }
+    }
+  }
+}
+```
+
+> **Tip:** Use `${OPENAI_API_KEY}` to reference environment variables from your shell.
+
+**Step 3: Set Environment Variable**
+
+<details>
+<summary><strong>macOS/Linux</strong></summary>
+
+```bash
+# Add to your shell profile (~/.bashrc, ~/.zshrc, etc.)
+export OPENAI_API_KEY="your-api-key-here"
+
+# Or set for current session
+export OPENAI_API_KEY="your-api-key-here"
+```
+</details>
+
+<details>
+<summary><strong>Windows</strong></summary>
+
+```powershell
+# Set for current session
+$env:OPENAI_API_KEY="your-api-key-here"
+
+# Or set permanently via System Properties > Environment Variables
+```
+</details>
+
+**Step 4: Approve and Test**
+
+Start Claude Code and approve the MCP server when prompted, then ask:
+> "Use the text_to_speech tool to say 'Hello from Claude Code'"
+
+</details>
+
+---
+
 ### For Claude Desktop
+
+<details>
+<summary><strong>Click to expand/collapse Claude Desktop setup</strong></summary>
 
 **Step 1: Find Your Config File**
 
@@ -144,9 +222,14 @@ Ask Claude:
 
 You should hear audio through your speakers!
 
+</details>
+
 ---
 
 ### For Cursor
+
+<details>
+<summary><strong>Click to expand/collapse Cursor setup</strong></summary>
 
 **Step 1: Create MCP Config File**
 
@@ -203,79 +286,14 @@ Add this to your MCP config file:
 
 The `text_to_speech` tool should now be available in Cursor's AI features.
 
----
-
-### For Claude Code
-
-**Step 1: Create Project MCP Config**
-
-In your project root, create a `.mcp.json` file:
-
-```bash
-# Create the config file
-touch .mcp.json
-
-# Open with your preferred editor
-code .mcp.json
-# or
-nano .mcp.json
-```
-
-> **Note:** Claude Code will prompt for approval before using project-scoped servers from `.mcp.json` files for security.
-
-**Step 2: Add Voice Box Configuration**
-
-Add this to your `.mcp.json` file:
-
-```json
-{
-  "mcpServers": {
-    "voice-box": {
-      "command": "npx",
-      "args": ["-y", "git+https://github.com/AnomalyPoint/voice-box.git"],
-      "env": {
-        "OPENAI_API_KEY": "${OPENAI_API_KEY}"
-      }
-    }
-  }
-}
-```
-
-> **Tip:** Use `${OPENAI_API_KEY}` to reference environment variables from your shell.
-
-**Step 3: Set Environment Variable**
-
-<details>
-<summary><strong>macOS/Linux</strong></summary>
-
-```bash
-# Add to your shell profile (~/.bashrc, ~/.zshrc, etc.)
-export OPENAI_API_KEY="your-api-key-here"
-
-# Or set for current session
-export OPENAI_API_KEY="your-api-key-here"
-```
 </details>
-
-<details>
-<summary><strong>Windows</strong></summary>
-
-```powershell
-# Set for current session
-$env:OPENAI_API_KEY="your-api-key-here"
-
-# Or set permanently via System Properties > Environment Variables
-```
-</details>
-
-**Step 4: Approve and Test**
-
-Start Claude Code and approve the MCP server when prompted, then ask:
-> "Use the text_to_speech tool to say 'Hello from Claude Code'"
 
 ---
 
 ### For Other MCP Clients
+
+<details>
+<summary><strong>Click to expand/collapse setup for other MCP clients</strong></summary>
 
 Add this to your MCP client's configuration:
 
@@ -292,6 +310,93 @@ Add this to your MCP client's configuration:
   }
 }
 ```
+
+</details>
+
+---
+
+## 🎤 Enhanced Voice Communication (Optional)
+
+Want your AI agent to communicate naturally using voice? You can configure your agent to provide updates, share its thinking, and communicate like a human colleague using Voice Box.
+
+<details>
+<summary><strong>Click to see voice communication instructions</strong></summary>
+
+### How to Enable Natural Voice Communication
+
+Add these instructions to your `CLAUDE.md` file (or equivalent agent instructions file) to enable natural, conversational voice updates:
+
+```markdown
+## Voice Communication Protocol
+
+When working in this project, use the Voice Box MCP (`text_to_speech` tool) to communicate naturally, as if you are two colleagues or collaborators working together.
+
+### Communication Rules:
+
+1. **Use Voice Frequently**: Speak out loud using the text_to_speech tool to provide updates, share your thinking, report findings, and explain what you're doing. This should feel natural and conversational.
+
+2. **Natural Human-Like Dialogue**: Communicate as if you're a human colleague. Use phrases like:
+   - "Okay, I'm going to work on this now..."
+   - "Alright, I found the issue in this file..."
+   - "Let me check something real quick..."
+   - "Interesting, it looks like..."
+   - "I'm done with that, moving on to..."
+
+3. **Balance Text and Voice**:
+   - **Text**: Use for technical output, code snippets, file paths, and structured information
+   - **Voice**: Use for summaries, progress updates, explanations, findings, and conversational updates
+
+4. **Voice for Progress Updates**: Always use voice when:
+   - Starting a new task
+   - Completing a task
+   - Discovering something important
+   - Explaining your thinking or approach
+   - Reporting issues or blockers
+   - Transitioning between tasks
+
+5. **Keep Voice Messages Conversational**: Avoid robotic or overly formal language. Be natural, friendly, and professional like a helpful colleague.
+
+6. **Wait for Responses When Asking Questions**: If you ask the user a question via voice, ALWAYS wait for their response before proceeding. This is critical for natural conversational flow:
+   - Ask the question via voice
+   - Do NOT continue with the next step until you receive an answer
+   - Just like two humans talking, the person asking waits for the answer before moving forward
+
+7. **Default Voice Settings**:
+   - Use `voice: "nova"` for a warm, natural tone (or choose any voice that fits your preference)
+   - Use `model: "tts-1"` for speed (switch to "tts-1-hd" for higher quality if desired)
+
+### Example Workflow:
+
+**[Voice]** "Hey, I'm going to analyze the authentication module now."
+**[Text]** Analyzing src/auth/login.ts...
+**[Voice]** "Found three issues. The first one is a missing null check, the second is..."
+**[Text]** Issues found:
+- Line 42: Missing null check
+- Line 78: Async/await error handling
+...
+**[Voice]** "Alright, I've fixed all three issues. Let me run the tests to make sure everything works."
+**[Text]** Running tests...
+**[Voice]** "Tests passed! We're good to go. What would you like me to work on next?"
+
+### Important:
+- Voice communication creates a more collaborative and engaging experience
+- Share your thought process, not just your actions
+- Make the user feel like they're pair programming with a human colleague
+```
+
+### Voice Options
+
+Choose from 6 different voices to match your preference:
+- **alloy** - Neutral, balanced
+- **echo** - Clear, expressive
+- **fable** - Warm, engaging
+- **onyx** - Deep, authoritative
+- **nova** - Energetic, friendly (recommended for natural conversation)
+- **shimmer** - Soft, gentle
+
+Simply specify the voice when calling the tool or set a default in your agent instructions.
+
+</details>
 
 ---
 
