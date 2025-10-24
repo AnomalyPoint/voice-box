@@ -178,6 +178,69 @@ The `text_to_speech` tool should now be available in Cursor's AI features.
 
 ---
 
+### For Claude Code
+
+**Step 1: Create MCP Config File**
+
+<details>
+<summary><strong>macOS/Linux</strong></summary>
+
+```bash
+# Create the config file if it doesn't exist
+mkdir -p ~/.config/claude-code
+touch ~/.config/claude-code/mcp.json
+
+# Open it with your preferred editor
+nano ~/.config/claude-code/mcp.json
+# or
+code ~/.config/claude-code/mcp.json
+```
+</details>
+
+<details>
+<summary><strong>Windows</strong></summary>
+
+```
+# Create the config file if it doesn't exist
+mkdir %USERPROFILE%\.config\claude-code
+notepad %USERPROFILE%\.config\claude-code\mcp.json
+```
+</details>
+
+**Step 2: Add Voice Box Configuration**
+
+Add this to your `mcp.json` file:
+
+```json
+{
+  "mcpServers": {
+    "voice-box": {
+      "command": "npx",
+      "args": ["-y", "git+https://github.com/AnomalyPoint/voice-box.git"],
+      "env": {
+        "OPENAI_API_KEY": "your-openai-api-key"
+      }
+    }
+  }
+}
+```
+
+**Step 3: Restart Claude Code**
+
+If you have Claude Code running, restart it to load the new MCP server.
+
+**Step 4: Test**
+
+In your terminal with Claude Code:
+```bash
+claude-code
+```
+
+Then ask Claude to use the tool:
+> "Use the text_to_speech tool to say 'Hello from Claude Code'"
+
+---
+
 ### For Other MCP Clients
 
 Add this to your MCP client's configuration:
