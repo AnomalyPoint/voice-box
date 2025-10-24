@@ -1,9 +1,7 @@
 #!/usr/bin/env node
 
-import express from "express";
-import cors from "cors";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
-import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
@@ -14,7 +12,6 @@ import Speaker from "speaker";
 
 // Environment variable handling
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-const PORT = process.env.PORT || 3000;
 
 if (!OPENAI_API_KEY) {
   console.error("Error: OPENAI_API_KEY environment variable is required");
@@ -116,191 +113,114 @@ async function playTextToSpeech(
   });
 }
 
-// Store MCP server transports (for session management)
-const transports = new Map<string, StreamableHTTPServerTransport>();
-
-// Create Express app
-const app = express();
-app.use(cors());
-app.use(express.json());
-
-// Health check endpoint
-app.get("/", (req, res) => {
-  res.json({
-    name: "Voice Box MCP Server",
+// Create MCP server
+const server = new Server(
+  {
+    name: "voice-box",
     version: "1.0.0",
-    transport: "streamable-http",
-    endpoints: {
-      mcp: "/mcp",
-      directTTS: "/text-to-speech"
-    }
-  });
-});
-
-// Direct text-to-speech endpoint (for convenience / backward compatibility)
-app.post("/text-to-speech", async (req, res) => {
-  const { text, voice = "alloy", model = "tts-1" } = req.body;
-
-  try {
-    // Validate inputs
-    if (!text || typeof text !== "string") {
-      return res.status(400).json({ error: "Text parameter is required and must be a string" });
-    }
-
-    if (voice && !VALID_VOICES.includes(voice as Voice)) {
-      return res.status(400).json({ error: `Invalid voice. Must be one of: ${VALID_VOICES.join(", ")}` });
-    }
-
-    if (model && !VALID_MODELS.includes(model as Model)) {
-      return res.status(400).json({ error: `Invalid model. Must be one of: ${VALID_MODELS.join(", ")}` });
-    }
-
-    // Play the text to speech
-    await playTextToSpeech(text, voice as Voice, model as Model);
-
-    res.json({
-      status: "success",
-      message: `Audio played with voice "${voice}" using model "${model}"`
-    });
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    res.status(500).json({
-      status: "error",
-      error: errorMessage
-    });
+  },
+  {
+    capabilities: {
+      tools: {},
+    },
   }
+);
+
+// Handle list tools request
+server.setRequestHandler(ListToolsRequestSchema, async () => {
+  return {
+    tools: [
+      {
+        name: "text_to_speech",
+        description: "Convert text to speech and play it through local speakers using OpenAI's TTS API. This tool speaks the provided text out loud on the user's computer.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            text: {
+              type: "string",
+              description: "The text to convert to speech and play",
+            },
+            voice: {
+              type: "string",
+              description: "The voice to use for speech synthesis",
+              enum: VALID_VOICES,
+              default: "alloy",
+            },
+            model: {
+              type: "string",
+              description: "The TTS model to use (tts-1 is faster, tts-1-hd is higher quality)",
+              enum: VALID_MODELS,
+              default: "tts-1",
+            },
+          },
+          required: ["text"],
+        },
+      },
+    ],
+  };
 });
 
-// MCP Streamable HTTP endpoint
-app.all("/mcp", async (req, res) => {
-  // Session management
-  const sessionId = req.headers["mcp-session-id"] as string | undefined;
+// Handle tool call request
+server.setRequestHandler(CallToolRequestSchema, async (request) => {
+  if (request.params.name === "text_to_speech") {
+    const { text, voice = "alloy", model = "tts-1" } = request.params.arguments as {
+      text: string;
+      voice?: Voice;
+      model?: Model;
+    };
 
-  let transport: StreamableHTTPServerTransport;
-
-  if (sessionId && transports.has(sessionId)) {
-    // Reuse existing transport
-    transport = transports.get(sessionId)!;
-  } else {
-    // Create new MCP server instance
-    const server = new Server(
-      {
-        name: "voice-box",
-        version: "1.0.0",
-      },
-      {
-        capabilities: {
-          tools: {},
-        },
+    try {
+      // Validate inputs
+      if (!text || typeof text !== "string") {
+        throw new Error("Text parameter is required and must be a string");
       }
-    );
 
-    // Handle list tools request
-    server.setRequestHandler(ListToolsRequestSchema, async () => {
+      if (voice && !VALID_VOICES.includes(voice)) {
+        throw new Error(`Invalid voice. Must be one of: ${VALID_VOICES.join(", ")}`);
+      }
+
+      if (model && !VALID_MODELS.includes(model)) {
+        throw new Error(`Invalid model. Must be one of: ${VALID_MODELS.join(", ")}`);
+      }
+
+      // Play the text to speech
+      await playTextToSpeech(text, voice, model);
+
       return {
-        tools: [
+        content: [
           {
-            name: "text_to_speech",
-            description: "Convert text to speech and play it through local speakers using OpenAI's TTS API. This tool speaks the provided text out loud on the user's computer.",
-            inputSchema: {
-              type: "object",
-              properties: {
-                text: {
-                  type: "string",
-                  description: "The text to convert to speech and play",
-                },
-                voice: {
-                  type: "string",
-                  description: "The voice to use for speech synthesis",
-                  enum: VALID_VOICES,
-                  default: "alloy",
-                },
-                model: {
-                  type: "string",
-                  description: "The TTS model to use (tts-1 is faster, tts-1-hd is higher quality)",
-                  enum: VALID_MODELS,
-                  default: "tts-1",
-                },
-              },
-              required: ["text"],
-            },
+            type: "text",
+            text: `Successfully played text to speech with voice "${voice}" using model "${model}"`,
           },
         ],
       };
-    });
-
-    // Handle tool call request
-    server.setRequestHandler(CallToolRequestSchema, async (request) => {
-      if (request.params.name === "text_to_speech") {
-        const { text, voice = "alloy", model = "tts-1" } = request.params.arguments as {
-          text: string;
-          voice?: Voice;
-          model?: Model;
-        };
-
-        try {
-          // Validate inputs
-          if (!text || typeof text !== "string") {
-            throw new Error("Text parameter is required and must be a string");
-          }
-
-          if (voice && !VALID_VOICES.includes(voice)) {
-            throw new Error(`Invalid voice. Must be one of: ${VALID_VOICES.join(", ")}`);
-          }
-
-          if (model && !VALID_MODELS.includes(model)) {
-            throw new Error(`Invalid model. Must be one of: ${VALID_MODELS.join(", ")}`);
-          }
-
-          // Play the text to speech
-          await playTextToSpeech(text, voice, model);
-
-          return {
-            content: [
-              {
-                type: "text",
-                text: `Successfully played text to speech with voice "${voice}" using model "${model}"`,
-              },
-            ],
-          };
-        } catch (error) {
-          const errorMessage = error instanceof Error ? error.message : String(error);
-          return {
-            content: [
-              {
-                type: "text",
-                text: `Error playing text to speech: ${errorMessage}`,
-              },
-            ],
-            isError: true,
-          };
-        }
-      }
-
-      throw new Error(`Unknown tool: ${request.params.name}`);
-    });
-
-    // Create new transport with session ID generator
-    transport = new StreamableHTTPServerTransport({
-      sessionIdGenerator: () => crypto.randomUUID(),
-    });
-    await server.connect(transport);
-
-    // Store transport with session ID
-    const newSessionId = sessionId || crypto.randomUUID();
-    transports.set(newSessionId, transport);
-
-    // Set session ID header for client
-    res.setHeader("Mcp-Session-Id", newSessionId);
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Error playing text to speech: ${errorMessage}`,
+          },
+        ],
+        isError: true,
+      };
+    }
   }
 
-  // Handle the request
-  await transport.handleRequest(req, res, req.body);
+  throw new Error(`Unknown tool: ${request.params.name}`);
 });
 
-// Start server
-app.listen(PORT, () => {
-  console.error(`Voice Box MCP server running on http://localhost:${PORT}`);
-  console.error(`MCP endpoint: http://localhost:${PORT}/mcp`);
-  console.error(`Direct TTS: http://localhost:${PORT}/text-to-speech`);
+// Connect stdio transport and start server
+async function main() {
+  const transport = new StdioServerTransport();
+  await server.connect(transport);
+
+  // Log to stderr (stdout is used for MCP protocol)
+  console.error("Voice Box MCP server running on stdio");
+}
+
+main().catch((error) => {
+  console.error("Fatal error:", error);
+  process.exit(1);
 });
