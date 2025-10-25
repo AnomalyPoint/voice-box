@@ -93,10 +93,16 @@ async function playTextToSpeech(
       });
 
       // Pipe ffmpeg output to speaker
+      if (!ffmpeg.stdout) {
+        throw new Error("ffmpeg stdout is not available");
+      }
       ffmpeg.stdout.pipe(speaker);
 
       // Handle ffmpeg errors (limit buffer size to prevent memory issues)
       let ffmpegError = "";
+      if (!ffmpeg.stderr) {
+        throw new Error("ffmpeg stderr is not available");
+      }
       ffmpeg.stderr.on("data", (data) => {
         const chunk = data.toString();
         if (ffmpegError.length + chunk.length <= MAX_ERROR_BUFFER_SIZE) {
@@ -159,12 +165,18 @@ async function playTextToSpeech(
       // This is safe because OpenAI SDK returns a ReadableStream that supports async iteration.
       // @ts-ignore - OpenAI Response.body async iteration not typed
       log("Streaming audio data from OpenAI to ffmpeg...");
+      if (!ffmpeg.stdin) {
+        throw new Error("ffmpeg stdin is not available");
+      }
       for await (const chunk of stream) {
         ffmpeg.stdin.write(chunk);
       }
 
       // Close ffmpeg stdin to signal end of input
       log("Audio stream complete, waiting for playback to finish...");
+      if (!ffmpeg.stdin) {
+        throw new Error("ffmpeg stdin is not available");
+      }
       ffmpeg.stdin.end();
 
     } catch (error) {
@@ -175,7 +187,7 @@ async function playTextToSpeech(
         ffmpeg.kill();
       }
       if (speaker) {
-        speaker.close();
+        speaker.end();
       }
 
       if (!settled) {
