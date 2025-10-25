@@ -2,6 +2,7 @@
   "name": "voice-box",
   "version": "1.0.0",
   "description": "MCP server for text-to-speech using OpenAI TTS with local audio playback",
+  "type": "module",
   "main": "dist/index.js",
   "bin": {
     "voice-box": "./dist/index.js"

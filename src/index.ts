@@ -69,9 +69,13 @@ async function playTextToSpeech(
 ): Promise<void> {
   log(`Starting TTS: voice=${voice}, model=${model}, textLength=${text.length}`);
   return new Promise(async (resolve, reject) => {
+    let settled = false;
+    let ffmpeg: ReturnType<typeof spawn> | null = null;
+    let speaker: Speaker | null = null;
+
     try {
       // Start ffmpeg process to decode MP3 to PCM
-      const ffmpeg = spawn("ffmpeg", [
+      ffmpeg = spawn("ffmpeg", [
         "-i", "pipe:0",           // Read from stdin
         "-f", "mp3",              // Input format is mp3
         "-acodec", "pcm_s16le",   // Output codec
@@ -82,7 +86,7 @@ async function playTextToSpeech(
       ]);
 
       // Set up speaker to play PCM audio
-      const speaker = new Speaker({
+      speaker = new Speaker({
         channels: CHANNELS,
         bitDepth: AUDIO_FORMAT,
         sampleRate: RATE,
@@ -105,24 +109,34 @@ async function playTextToSpeech(
       });
 
       ffmpeg.on("error", (error) => {
-        reject(new Error(`ffmpeg process error: ${error.message}`));
+        if (!settled) {
+          settled = true;
+          reject(new Error(`ffmpeg process error: ${error.message}`));
+        }
       });
 
       ffmpeg.on("close", (code) => {
-        if (code !== 0) {
+        if (code !== 0 && !settled) {
+          settled = true;
           reject(new Error(`ffmpeg exited with code ${code}: ${ffmpegError}`));
         }
         // Don't resolve here - wait for speaker to finish
       });
 
       speaker.on("error", (error) => {
-        reject(new Error(`Speaker error: ${error.message}`));
+        if (!settled) {
+          settled = true;
+          reject(new Error(`Speaker error: ${error.message}`));
+        }
       });
 
       // Resolve when speaker finishes playing audio
       speaker.on("close", () => {
-        log("Audio playback completed");
-        resolve();
+        if (!settled) {
+          settled = true;
+          log("Audio playback completed");
+          resolve();
+        }
       });
 
       // Get streaming response from OpenAI TTS
@@ -155,7 +169,19 @@ async function playTextToSpeech(
 
     } catch (error) {
       log("Error in playTextToSpeech:", error);
-      reject(error);
+
+      // Clean up resources on error
+      if (ffmpeg && !ffmpeg.killed) {
+        ffmpeg.kill();
+      }
+      if (speaker) {
+        speaker.close();
+      }
+
+      if (!settled) {
+        settled = true;
+        reject(error);
+      }
     }
   });
 }
@@ -210,7 +236,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
 // Handle tool call request
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
   if (request.params.name === "text_to_speech") {
-    const { text, voice = "alloy", model = "tts-1" } = request.params.arguments as {
+    const { text, voice = "onyx", model = "tts-1" } = request.params.arguments as {
       text: string;
       voice?: Voice;
       model?: Model;
