@@ -25,8 +25,9 @@ const AUDIO_FORMAT = 16; // 16-bit
 const CHANNELS = 1;
 const RATE = 24000;
 
-// Valid voice options (all 11 OpenAI TTS voices as of 2024)
-const VALID_VOICES = ["alloy", "ash", "ballad", "coral", "echo", "fable", "onyx", "nova", "sage", "shimmer", "verse"] as const;
+// Valid voice options (9 voices supported by standard TTS API as of 2024)
+// Note: "ballad" and "verse" are Realtime API exclusive and not supported by tts-1/tts-1-hd
+const VALID_VOICES = ["alloy", "ash", "coral", "echo", "fable", "nova", "onyx", "sage", "shimmer"] as const;
 const VALID_MODELS = ["tts-1", "tts-1-hd"] as const;
 
 // OpenAI TTS text length limit
