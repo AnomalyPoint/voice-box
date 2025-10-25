@@ -32,8 +32,8 @@ const VALID_MODELS = ["tts-1", "tts-1-hd"] as const;
 // OpenAI TTS text length limit
 const MAX_TEXT_LENGTH = 4096;
 
-// Request timeout (30 seconds)
-const REQUEST_TIMEOUT = 30000;
+// Request timeout (5 minutes)
+const REQUEST_TIMEOUT = 300000;
 
 // Maximum error message buffer size (10KB)
 const MAX_ERROR_BUFFER_SIZE = 10240;
