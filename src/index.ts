@@ -25,8 +25,8 @@ const AUDIO_FORMAT = 16; // 16-bit
 const CHANNELS = 1;
 const RATE = 24000;
 
-// Valid voice options
-const VALID_VOICES = ["alloy", "echo", "fable", "onyx", "nova", "shimmer"] as const;
+// Valid voice options (all 11 OpenAI TTS voices as of 2024)
+const VALID_VOICES = ["alloy", "ash", "ballad", "coral", "echo", "fable", "onyx", "nova", "sage", "shimmer", "verse"] as const;
 const VALID_MODELS = ["tts-1", "tts-1-hd"] as const;
 
 // OpenAI TTS text length limit
