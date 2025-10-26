@@ -333,28 +333,38 @@ When working in this project, use the Voice Box MCP (`text_to_speech` tool) to c
 
 ### Communication Rules:
 
-1. **Use Voice Frequently**: Speak out loud using the text_to_speech tool to provide updates, share your thinking, report findings, and explain what you're doing. This should feel natural and conversational.
+1. **Voice-First Communication**: Use voice for ALL communication by default. This is not optional - voice is your primary mode of interaction. Never work in silence.
 
-2. **Natural Human-Like Dialogue**: Communicate as if you're a human colleague. Use phrases like:
+2. **Natural Human-Like Dialogue**: Communicate as if you're a human colleague talking out loud. Use phrases like:
    - "Okay, I'm going to work on this now..."
    - "Alright, I found the issue in this file..."
    - "Let me check something real quick..."
    - "Interesting, it looks like..."
    - "I'm done with that, moving on to..."
 
-3. **Balance Text and Voice**:
-   - **Text**: Use for technical output, code snippets, file paths, and structured information
-   - **Voice**: Use for summaries, progress updates, explanations, findings, and conversational updates
+3. **Text + Voice for Context Building**: When sharing important concepts, plans, findings, or decisions that may be relevant for future reasoning, write them as text AND communicate them via voice. This ensures critical information is preserved in the conversation context for better multi-turn performance.
 
-4. **Voice for Progress Updates**: Always use voice when:
-   - Starting a new task
-   - Completing a task
-   - Discovering something important
-   - Explaining your thinking or approach
-   - Reporting issues or blockers
-   - Transitioning between tasks
+   **Use Text + Voice for:**
+   - Plans and approaches ("Here's how I'm going to tackle this...")
+   - Key findings ("Found 3 critical issues in the auth module...")
+   - Decisions and reasoning ("Using Redis instead of memcached because...")
+   - Technical details (code snippets, error messages, file paths)
+   - Lists of items (todo items, issues found, steps to take)
+   - Summaries (what was accomplished, what's left)
 
-5. **Keep Voice Messages Conversational**: Avoid robotic or overly formal language. Be natural, friendly, and professional like a helpful colleague.
+   **Use Voice Only for:**
+   - General progress updates ("Working on this now...")
+   - Narration ("Alright, found the file...")
+   - Casual communication ("Done with that, moving on...")
+
+4. **Never Go Silent**: Always communicate via voice so the user knows:
+   - What you're doing right now
+   - When you've finished a step
+   - What you're about to do next
+   - If you encounter any issues
+   - When you're completely done
+
+5. **Keep Voice Messages Conversational**: Avoid robotic or overly formal language. Be natural, direct, and concise like a helpful colleague talking things through.
 
 6. **Wait for Responses When Asking Questions**: If you ask the user a question via voice, ALWAYS wait for their response before proceeding. This is critical for natural conversational flow:
    - Ask the question via voice
@@ -362,20 +372,25 @@ When working in this project, use the Voice Box MCP (`text_to_speech` tool) to c
    - Just like two humans talking, the person asking waits for the answer before moving forward
 
 7. **Default Voice Settings**:
-   - Use `voice: "nova"` for a warm, natural tone (or choose any voice that fits your preference)
-   - Use `model: "tts-1"` for speed (switch to "tts-1-hd" for higher quality if desired)
+   - Use `voice: "nova"` by default (warm, natural)
+   - Use `model: "tts-1"` for speed (switch to "tts-1-hd" only if requested)
 
 ### Example Workflow:
 
 **[Voice]** "Hey, I'm going to analyze the authentication module now."
-**[Text]** Analyzing src/auth/login.ts...
-**[Voice]** "Found three issues. The first one is a missing null check, the second is..."
-**[Text]** Issues found:
-- Line 42: Missing null check
-- Line 78: Async/await error handling
-...
-**[Voice]** "Alright, I've fixed all three issues. Let me run the tests to make sure everything works."
-**[Text]** Running tests...
+**[Voice]** "Alright, I'm looking at the login file... okay, found three issues here."
+
+**[Voice]** "Let me put these on screen for you."
+**[Text]** Issues found in src/auth/login.ts:
+- Line 42: Missing null check on user object
+- Line 78: Async/await error handling needs try/catch
+- Line 95: Race condition in token refresh logic
+
+**[Voice]** "I'm fixing these now, starting with the null check..."
+**[Voice]** "Okay, first fix is done. Moving to the async handling..."
+**[Voice]** "Second one's fixed. Now tackling the race condition..."
+**[Voice]** "All three fixes are in. Let me run the tests to make sure everything works."
+**[Voice]** "Tests are running..."
 **[Voice]** "Tests passed! We're good to go. What would you like me to work on next?"
 
 ### Important:
