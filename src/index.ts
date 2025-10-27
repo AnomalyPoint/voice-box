@@ -230,7 +230,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
               type: "string",
               description: "The voice to use for speech synthesis",
               enum: VALID_VOICES,
-              default: "onyx",
+              default: "nova",
             },
             model: {
               type: "string",
@@ -249,7 +249,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
 // Handle tool call request
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
   if (request.params.name === "text_to_speech") {
-    const { text, voice = "onyx", model = "tts-1" } = request.params.arguments as {
+    const { text, voice = "nova", model = "tts-1" } = request.params.arguments as {
       text: string;
       voice?: Voice;
       model?: Model;
