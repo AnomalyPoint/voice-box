@@ -1,5 +1,5 @@
 {
-  "name": "voice-box",
+  "name": "@anomalypoint/voice-box",
   "version": "1.0.0",
   "description": "MCP server for text-to-speech using OpenAI TTS with local audio playback",
   "type": "module",
@@ -7,6 +7,10 @@
   "bin": {
     "voice-box": "./dist/index.js"
   },
+  "files": [
+    "dist/**/*",
+    "README.md"
+  ],
   "scripts": {
     "build": "tsc",
     "start": "node dist/index.js",
@@ -21,8 +25,19 @@
     "openai",
     "audio"
   ],
-  "author": "",
+  "author": "AnomalyPoint",
   "license": "ISC",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/AnomalyPoint/voice-box.git"
+  },
+  "homepage": "https://github.com/AnomalyPoint/voice-box",
+  "bugs": {
+    "url": "https://github.com/AnomalyPoint/voice-box/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.20.2",
     "openai": "^6.6.0",

@@ -80,6 +80,33 @@ ffmpeg -version
 <details open>
 <summary><strong>Click to expand/collapse Claude Code setup</strong></summary>
 
+**Quick Install (Recommended)**
+
+**Step 1:** Set your OpenAI API key as an environment variable:
+
+```bash
+# macOS/Linux - Add to ~/.bashrc or ~/.zshrc
+export OPENAI_API_KEY="your-api-key-here"
+
+# Windows PowerShell
+$env:OPENAI_API_KEY="your-api-key-here"
+```
+
+**Step 2:** Install Voice Box with one command:
+
+```bash
+claude mcp add voice-box --command npx --args "-y @anomalypoint/voice-box@latest" --env OPENAI_API_KEY
+```
+
+**Step 3:** Restart Claude Code and approve the MCP server when prompted.
+
+**Step 4:** Test it:
+> "Use the text_to_speech tool to say 'Hello from Claude Code'"
+
+---
+
+**Manual Installation (Alternative)**
+
 **Step 1: Create Project MCP Config**
 
 In your project root, create a `.mcp.json` file:
@@ -105,7 +132,7 @@ Add this to your `.mcp.json` file:
   "mcpServers": {
     "voice-box": {
       "command": "npx",
-      "args": ["-y", "git+https://github.com/AnomalyPoint/voice-box.git"],
+      "args": ["-y", "@anomalypoint/voice-box@latest"],
       "env": {
         "OPENAI_API_KEY": "${OPENAI_API_KEY}"
       }
@@ -202,7 +229,7 @@ Add this to your config file (replace `your-openai-api-key` with your actual key
   "mcpServers": {
     "voice-box": {
       "command": "npx",
-      "args": ["-y", "git+https://github.com/AnomalyPoint/voice-box.git"],
+      "args": ["-y", "@anomalypoint/voice-box@latest"],
       "env": {
         "OPENAI_API_KEY": "your-openai-api-key"
       }
@@ -271,7 +298,7 @@ Add this to your MCP config file:
   "mcpServers": {
     "voice-box": {
       "command": "npx",
-      "args": ["-y", "git+https://github.com/AnomalyPoint/voice-box.git"],
+      "args": ["-y", "@anomalypoint/voice-box@latest"],
       "env": {
         "OPENAI_API_KEY": "your-openai-api-key"
       }
@@ -302,7 +329,7 @@ Add this to your MCP client's configuration:
   "mcpServers": {
     "voice-box": {
       "command": "npx",
-      "args": ["-y", "git+https://github.com/AnomalyPoint/voice-box.git"],
+      "args": ["-y", "@anomalypoint/voice-box@latest"],
       "env": {
         "OPENAI_API_KEY": "your-openai-api-key"
       }

@@ -1,0 +1,43 @@
+# Source files
+src/
+tsconfig.json
+
+# Development files
+.git
+.gitignore
+*.log
+npm-debug.log*
+.env
+.env.*
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# MCP configuration files
+.mcp.json
+.claude/
+.cursor/
+
+# Documentation that's not needed in the package
+CLAUDE.md
+
+# Test files
+test/
+tests/
+*.test.js
+*.test.ts
+*.spec.js
+*.spec.ts
+
+# Build artifacts
+node_modules/
+coverage/
+.nyc_output/
+
+# OS files
+.DS_Store
+Thumbs.db
