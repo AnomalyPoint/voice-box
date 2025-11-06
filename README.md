@@ -92,10 +92,16 @@ export OPENAI_API_KEY="your-api-key-here"
 $env:OPENAI_API_KEY="your-api-key-here"
 ```
 
-**Step 2:** Install Voice Box with one command:
+**Step 2:** Install Voice Box:
 
+For this project only:
 ```bash
-claude mcp add voice-box --command npx --args "-y @anomalypoint/voice-box@latest" --env OPENAI_API_KEY
+claude mcp add --transport stdio voice-box -e OPENAI_API_KEY=$OPENAI_API_KEY -- npx -y @anomalypoint/voice-box@latest
+```
+
+Or install globally (available in all projects):
+```bash
+claude mcp add -s user --transport stdio voice-box -e OPENAI_API_KEY=$OPENAI_API_KEY -- npx -y @anomalypoint/voice-box@latest
 ```
 
 **Step 3:** Restart Claude Code and approve the MCP server when prompted.
