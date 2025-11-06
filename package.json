@@ -1,6 +1,6 @@
 {
   "name": "@anomalypoint/voice-box",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "MCP server for text-to-speech using OpenAI TTS with local audio playback",
   "type": "module",
   "main": "dist/index.js",

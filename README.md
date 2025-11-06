@@ -1,5 +1,9 @@
 # Voice Box
 
+[![npm version](https://badge.fury.io/js/@anomalypoint%2Fvoice-box.svg)](https://www.npmjs.com/package/@anomalypoint/voice-box)
+[![npm downloads](https://img.shields.io/npm/dt/@anomalypoint/voice-box.svg)](https://www.npmjs.com/package/@anomalypoint/voice-box)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 Give your AI a voice. Voice Box is an MCP server that adds text-to-speech capabilities to Claude Desktop, Cursor, and other MCP clients using OpenAI's TTS API.
 
 ## What It Does
