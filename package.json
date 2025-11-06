@@ -5,7 +5,7 @@
   "type": "module",
   "main": "dist/index.js",
   "bin": {
-    "voice-box": "./dist/index.js"
+    "voice-box": "dist/index.js"
   },
   "files": [
     "dist/**/*",
@@ -29,7 +29,7 @@
   "license": "ISC",
   "repository": {
     "type": "git",
-    "url": "https://github.com/AnomalyPoint/voice-box.git"
+    "url": "git+https://github.com/AnomalyPoint/voice-box.git"
   },
   "homepage": "https://github.com/AnomalyPoint/voice-box",
   "bugs": {
