@@ -1,0 +1,9 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    // Source maps would point at src/, which is not in the published tarball,
+    // so they are dead weight there. `npm run typecheck` still covers tests.
+    "sourceMap": false
+  },
+  "exclude": ["node_modules", "dist", "src/ui", "src/**/*.test.ts"]
+}

@@ -1,7 +1,11 @@
 # Sensitive files - keep local
 .env
 CLAUDE.md
+AGENTS.md
 .mcp.json
+
+# Voice Box runtime state (API keys, daemon token, audio cache)
+.voice-box/
 
 # Claude Code local settings
 .claude/

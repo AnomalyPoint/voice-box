@@ -1,20 +1,26 @@
 {
   "name": "@anomalypoint/voice-box",
-  "version": "1.0.2",
-  "description": "MCP server for text-to-speech using OpenAI TTS with local audio playback",
+  "version": "2.0.0",
+  "description": "Local voice control panel for AI agents. Give each agent its own voice, queue and manage what they say, with OpenAI or ElevenLabs TTS.",
   "type": "module",
-  "main": "dist/index.js",
+  "main": "dist/cli.js",
   "bin": {
-    "voice-box": "dist/index.js"
+    "voice-box": "dist/cli.js",
+    "voice-box-mcp": "dist/mcp-bin.js"
   },
   "files": [
     "dist/**/*",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
   "scripts": {
-    "build": "tsc",
-    "start": "node dist/index.js",
-    "dev": "tsx src/index.ts",
+    "build": "tsc -p tsconfig.build.json && node scripts/copy-assets.mjs",
+    "dev": "tsx src/cli.ts",
+    "dev:mcp": "tsx src/cli.ts mcp",
+    "start": "node dist/cli.js",
+    "doctor": "node dist/cli.js doctor",
+    "test": "node --import tsx --test \"src/**/*.test.ts\"",
+    "typecheck": "tsc --noEmit",
     "prepare": "npm run build"
   },
   "keywords": [
@@ -23,29 +29,36 @@
     "text-to-speech",
     "tts",
     "openai",
+    "elevenlabs",
+    "voice",
+    "ai-agents",
+    "claude-code",
     "audio"
   ],
   "author": "AnomalyPoint",
-  "license": "ISC",
+  "license": "MIT",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/AnomalyPoint/voice-box.git"
   },
-  "homepage": "https://github.com/AnomalyPoint/voice-box",
+  "homepage": "https://github.com/AnomalyPoint/voice-box#readme",
   "bugs": {
     "url": "https://github.com/AnomalyPoint/voice-box/issues"
   },
   "publishConfig": {
-    "access": "public"
+    "access": "public",
+    "provenance": true
+  },
+  "engines": {
+    "node": ">=18.17.0"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.20.2",
     "openai": "^6.6.0",
-    "speaker": "^0.5.5"
+    "zod": "^3.25.0"
   },
   "devDependencies": {
     "@types/node": "^24.9.1",
-    "dotenv": "^17.2.3",
     "tsx": "^4.20.6",
     "typescript": "^5.9.3"
   }

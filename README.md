@@ -1,570 +1,284 @@
 # Voice Box
 
-[![npm version](https://badge.fury.io/js/@anomalypoint%2Fvoice-box.svg)](https://www.npmjs.com/package/@anomalypoint/voice-box)
-[![npm downloads](https://img.shields.io/npm/dt/@anomalypoint/voice-box.svg)](https://www.npmjs.com/package/@anomalypoint/voice-box)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![npm version](https://img.shields.io/npm/v/@anomalypoint/voice-box.svg)](https://www.npmjs.com/package/@anomalypoint/voice-box)
+[![npm downloads](https://img.shields.io/npm/dm/@anomalypoint/voice-box.svg)](https://www.npmjs.com/package/@anomalypoint/voice-box)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-Give your AI a voice. Voice Box is an MCP server that adds text-to-speech capabilities to Claude Desktop, Cursor, and other MCP clients using OpenAI's TTS API.
+**A local voice control panel for AI coding agents.**
 
-## What It Does
+Voice Box lets Claude Code, Cursor, Claude Desktop and other MCP clients talk to you out
+loud — and gives you a control panel to manage them. Each agent gets its own voice, every
+utterance goes through one queue so agents never talk over each other, and you can mute,
+skip, or reassign any of them from a browser tab.
 
-Voice Box plays AI-generated speech directly through your computer's speakers in real-time. Perfect for:
-- Having Claude speak responses out loud
-- Voice-enabled AI assistants
-- Accessibility features
-- Hands-free interactions
-
-**Features:**
-- 9 voice options (alloy, ash, coral, echo, fable, nova, onyx, sage, shimmer)
-- 2 quality levels (tts-1 for speed, tts-1-hd for quality)
-- Real-time streaming audio
-- Works with any MCP client
+Everything runs on your machine. The only thing that leaves it is the text you choose to
+have spoken, sent to whichever TTS provider you configured.
 
 ---
 
-## Quick Start
+## Why
 
-### Prerequisites
+Running several agents at once means several voices at once. Voice Box puts a single
+daemon in charge of the speaker: agents register with it, their messages are queued
+fairly, and you stay in control of who sounds like what.
 
-**1. Node.js**
-- Version 18 or higher
-- Check: `node --version`
-- Download: https://nodejs.org
-
-**2. ffmpeg**
-
-<details>
-<summary><strong>macOS</strong></summary>
-
-```bash
-# Install with Homebrew
-brew install ffmpeg
-
-# Verify installation
-ffmpeg -version
-```
-</details>
-
-<details>
-<summary><strong>Windows</strong></summary>
-
-1. Download ffmpeg from https://ffmpeg.org/download.html
-2. Extract the zip file
-3. Add the `bin` folder to your system PATH:
-   - Search for "Environment Variables" in Windows Settings
-   - Edit "Path" under System Variables
-   - Add the path to ffmpeg's `bin` folder (e.g., `C:\ffmpeg\bin`)
-4. Restart your terminal
-5. Verify: `ffmpeg -version`
-</details>
-
-<details>
-<summary><strong>Linux (Ubuntu/Debian)</strong></summary>
-
-```bash
-# Install ffmpeg
-sudo apt-get update
-sudo apt-get install ffmpeg
-
-# Verify installation
-ffmpeg -version
-```
-</details>
-
-**3. OpenAI API Key**
-- Get your API key from https://platform.openai.com/api-keys
-- Keep it handy for configuration
+- **No native dependencies.** Nothing compiles at install time.
+- **No ffmpeg required.** Audio plays through a player your OS already has.
+- **Multi-agent by design.** One playback lane, round-robin fairness, per-agent mute.
+- **Two providers.** OpenAI TTS and ElevenLabs, chosen per agent.
+- **Keys in one place.** Not duplicated into every project's MCP config.
 
 ---
 
-## Installation & Setup
+## Requirements
 
-### For Claude Code
+- **Node.js 18.17+**
+- **An audio player** — already present on virtually every system:
+  - macOS: `afplay` (built in, nothing to do)
+  - Windows: PowerShell (built in, nothing to do)
+  - Linux: one of `ffplay`, `mpg123`, `mpv`, or `cvlc` — e.g. `sudo apt install mpg123`
+- **An API key** for [OpenAI](https://platform.openai.com/api-keys) or
+  [ElevenLabs](https://elevenlabs.io/app/settings/api-keys)
+
+Run `npx @anomalypoint/voice-box doctor` to check all of this at once.
+
+---
+
+## Quick start
+
+**1. Open the control panel.** This starts the daemon and opens your browser:
+
+```bash
+npx @anomalypoint/voice-box
+```
+
+**2. Add an API key** in the **SETUP** tab. The key is verified against the provider
+before it is saved, so a typo fails immediately rather than mysteriously later.
+
+**3. Point your MCP client at Voice Box.**
 
 <details open>
-<summary><strong>Click to expand/collapse Claude Code setup</strong></summary>
-
-**Quick Install (Recommended)**
-
-**Step 1:** Set your OpenAI API key as an environment variable:
+<summary><b>Claude Code</b></summary>
 
 ```bash
-# macOS/Linux - Add to ~/.bashrc or ~/.zshrc
-export OPENAI_API_KEY="your-api-key-here"
-
-# Windows PowerShell
-$env:OPENAI_API_KEY="your-api-key-here"
+claude mcp add voice-box -- npx -y @anomalypoint/voice-box@latest mcp
 ```
 
-**Step 2:** Install Voice Box:
+Add `-s user` to make it available in every project.
+</details>
 
-For this project only:
-```bash
-claude mcp add --transport stdio voice-box -e OPENAI_API_KEY=$OPENAI_API_KEY -- npx -y @anomalypoint/voice-box@latest
-```
+<details>
+<summary><b>Claude Desktop / Cursor / other MCP clients</b></summary>
 
-Or install globally (available in all projects):
-```bash
-claude mcp add -s user --transport stdio voice-box -e OPENAI_API_KEY=$OPENAI_API_KEY -- npx -y @anomalypoint/voice-box@latest
-```
-
-**Step 3:** Restart Claude Code and approve the MCP server when prompted.
-
-**Step 4:** Test it:
-> "Use the text_to_speech tool to say 'Hello from Claude Code'"
-
----
-
-**Manual Installation (Alternative)**
-
-**Step 1: Create Project MCP Config**
-
-In your project root, create a `.mcp.json` file:
-
-```bash
-# Create the config file
-touch .mcp.json
-
-# Open with your preferred editor
-code .mcp.json
-# or
-nano .mcp.json
-```
-
-> **Note:** Claude Code will prompt for approval before using project-scoped servers from `.mcp.json` files for security.
-
-**Step 2: Add Voice Box Configuration**
-
-Add this to your `.mcp.json` file:
+Add to `claude_desktop_config.json`, `.cursor/mcp.json`, or your client's equivalent:
 
 ```json
 {
   "mcpServers": {
     "voice-box": {
       "command": "npx",
-      "args": ["-y", "@anomalypoint/voice-box@latest"],
-      "env": {
-        "OPENAI_API_KEY": "${OPENAI_API_KEY}"
-      }
+      "args": ["-y", "@anomalypoint/voice-box@latest", "mcp"]
     }
   }
 }
 ```
-
-> **Tip:** Use `${OPENAI_API_KEY}` to reference environment variables from your shell.
-
-**Step 3: Set Environment Variable**
-
-<details>
-<summary><strong>macOS/Linux</strong></summary>
-
-```bash
-# Add to your shell profile (~/.bashrc, ~/.zshrc, etc.)
-export OPENAI_API_KEY="your-api-key-here"
-
-# Or set for current session
-export OPENAI_API_KEY="your-api-key-here"
-```
 </details>
 
-<details>
-<summary><strong>Windows</strong></summary>
+> There is deliberately **no `env` block**. Keys live in the control panel, so you
+> configure them once instead of pasting them into every project.
 
-```powershell
-# Set for current session
-$env:OPENAI_API_KEY="your-api-key-here"
-
-# Or set permanently via System Properties > Environment Variables
-```
-</details>
-
-**Step 4: Approve and Test**
-
-Start Claude Code and approve the MCP server when prompted, then ask:
-> "Use the text_to_speech tool to say 'Hello from Claude Code'"
-
-</details>
+**4. Ask your agent to speak.** It registers itself automatically, picks up an unused
+voice, and tells you where to change it.
 
 ---
 
-### For Claude Desktop
+## The control panel
 
-<details>
-<summary><strong>Click to expand/collapse Claude Desktop setup</strong></summary>
+`npx @anomalypoint/voice-box` opens it at `http://127.0.0.1:4517`.
 
-**Step 1: Find Your Config File**
+| Tab | What it does |
+| --- | --- |
+| **CHANNELS** | Every agent as a channel strip: rename, assign a voice, preview it, set volume, mute, or forget the agent |
+| **CUE** | What is playing and what is queued, with per-item skip |
+| **LOG** | Everything that has been spoken, with replay |
+| **SETUP** | Provider keys (verified before saving), audio backend, master volume |
+| **DIAG** | Detected players, versions, live sessions |
 
-<details>
-<summary><strong>macOS</strong></summary>
+The transport bar at the top pauses, skips, and clears the queue globally.
 
-```bash
-# The config file is located at:
-~/Library/Application Support/Claude/claude_desktop_config.json
-
-# Open it with:
-open -a TextEdit ~/Library/Application\ Support/Claude/claude_desktop_config.json
-```
-</details>
-
-<details>
-<summary><strong>Windows</strong></summary>
-
-```
-# The config file is located at:
-%APPDATA%\Claude\claude_desktop_config.json
-
-# Open File Explorer and paste the path above, or edit with Notepad:
-notepad %APPDATA%\Claude\claude_desktop_config.json
-```
-</details>
-
-<details>
-<summary><strong>Linux</strong></summary>
-
-```bash
-# The config file is located at:
-~/.config/Claude/claude_desktop_config.json
-
-# Open it with your preferred editor:
-nano ~/.config/Claude/claude_desktop_config.json
-```
-</details>
-
-**Step 2: Add Voice Box Configuration**
-
-Add this to your config file (replace `your-openai-api-key` with your actual key):
-
-```json
-{
-  "mcpServers": {
-    "voice-box": {
-      "command": "npx",
-      "args": ["-y", "@anomalypoint/voice-box@latest"],
-      "env": {
-        "OPENAI_API_KEY": "your-openai-api-key"
-      }
-    }
-  }
-}
-```
-
-**Step 3: Restart Claude Desktop**
-
-Quit and reopen Claude Desktop completely.
-
-**Step 4: Test It**
-
-Ask Claude:
-> "Use the text_to_speech tool to say 'Hello, this is a test'"
-
-You should hear audio through your speakers!
-
-</details>
+**Pause** takes effect at the utterance boundary — the current line finishes rather than
+being cut off mid-sentence.
 
 ---
 
-### For Cursor
+## How agents get their identity
 
-<details>
-<summary><strong>Click to expand/collapse Cursor setup</strong></summary>
+This is the part that keeps a long-running setup tidy.
 
-**Step 1: Create MCP Config File**
+- A **profile** is persistent: name, voice, project, mute state. It survives restarts.
+- A **session** is one live MCP process, bound to a profile.
 
-<details>
-<summary><strong>Project-Specific (Recommended for teams)</strong></summary>
+When an agent connects, the MCP process already knows its working directory and process
+id, so it **claims a profile automatically** — no cooperation from the model required:
 
-Create `.cursor/mcp.json` in your project root:
+1. If a profile for that project is free, it is reused, keeping the name and voice you
+   assigned. Restarting an agent creates nothing new.
+2. If another agent is already using it, a new one is minted (`my-project #2`) with the
+   next unused voice, so the two are audibly distinguishable.
+3. If an agent crashes or is force-quit, its slot is released automatically — Voice Box
+   checks whether the process is still alive rather than relying on a polite goodbye.
 
-```bash
-mkdir -p .cursor
-touch .cursor/mcp.json
-```
+**Speaking never requires registering first.** The `voice_register` tool only *renames*
+the profile an agent already has, and it is keyed on project + name, so calling it
+repeatedly can never fan out into duplicates.
 
-This config will be shared with your team via version control.
-</details>
-
-<details>
-<summary><strong>Global (Available in all projects)</strong></summary>
-
-**macOS/Linux:**
-```bash
-mkdir -p ~/.cursor
-touch ~/.cursor/mcp.json
-```
-
-**Windows:**
-```
-mkdir %USERPROFILE%\.cursor
-notepad %USERPROFILE%\.cursor\mcp.json
-```
-</details>
-
-**Step 2: Add Voice Box Configuration**
-
-Add this to your MCP config file:
-
-```json
-{
-  "mcpServers": {
-    "voice-box": {
-      "command": "npx",
-      "args": ["-y", "@anomalypoint/voice-box@latest"],
-      "env": {
-        "OPENAI_API_KEY": "your-openai-api-key"
-      }
-    }
-  }
-}
-```
-
-**Step 3: Restart Cursor**
-
-**Step 4: Test**
-
-The `text_to_speech` tool should now be available in Cursor's AI features.
-
-</details>
+**You own voice assignment.** Once you pick a voice in the panel, agents cannot override
+it.
 
 ---
 
-### For Other MCP Clients
+## Tools exposed to agents
 
-<details>
-<summary><strong>Click to expand/collapse setup for other MCP clients</strong></summary>
+| Tool | Purpose |
+| --- | --- |
+| `speak` | Say something out loud. Returns as soon as it is queued, not when playback finishes. |
+| `voice_register` | Give this agent a display name, e.g. its persona. |
+| `voice_status` | Check the queue, and whether this agent is muted. |
 
-Add this to your MCP client's configuration:
+`speak` accepts an optional `priority` (`low`/`normal`/`high`/`urgent`) and `wait`
+(`none`/`accepted`/`played`).
 
-```json
-{
-  "mcpServers": {
-    "voice-box": {
-      "command": "npx",
-      "args": ["-y", "@anomalypoint/voice-box@latest"],
-      "env": {
-        "OPENAI_API_KEY": "your-openai-api-key"
-      }
-    }
-  }
-}
-```
+### Getting the most out of it
 
-</details>
-
----
-
-## 🎤 Enhanced Voice Communication (Optional)
-
-Want your AI agent to talk through its work like a human colleague? Add these instructions to your `CLAUDE.md` (or equivalent agent instructions file) to enable natural voice communication.
-
-<details>
-<summary><strong>Click to expand voice communication setup</strong></summary>
-
-### Quick Setup
-
-Copy the section below and paste it into your `CLAUDE.md` or agent instructions file:
-
----
-
-**📋 COPY EVERYTHING BELOW THIS LINE:**
+Add something like this to your `CLAUDE.md` so voice is used well rather than constantly:
 
 ```markdown
-## Voice Communication Protocol
-
-Use the `text_to_speech` tool to communicate naturally like a colleague working alongside the user.
-
-### Rules:
-
-1. **Voice-First**: Use voice for all communication by default. Never work in silence.
-
-2. **Natural Dialogue**: Talk like a human. Use phrases like:
-   - "Okay, working on this now..."
-   - "Found the issue in this file..."
-   - "Let me check something quick..."
-   - "Done with that, moving on..."
-
-3. **Text + Voice for Important Info**: When sharing plans, findings, or decisions, use BOTH text and voice so information is preserved in context:
-   - Plans and approaches
-   - Key findings and issues
-   - Technical details (code, errors, paths)
-   - Lists and summaries
-
-   Use voice only for casual progress updates and narration.
-
-4. **Never Go Silent**: Keep the user informed:
-   - What you're doing now
-   - When you finish a step
-   - What's next
-   - Any issues you encounter
-
-5. **Wait for Answers**: If you ask a question, wait for the user's response before continuing.
-
-6. **Settings**: Use `voice: "nova"` and `model: "tts-1"` by default.
-
-### Example:
-
-**[Voice]** "Hey, analyzing the auth module now..."
-**[Voice]** "Found three issues. Let me put them on screen."
-
-**[Text]** Issues in src/auth/login.ts:
-- Line 42: Missing null check
-- Line 78: Need try/catch for async
-- Line 95: Race condition in token refresh
-
-**[Voice]** "Fixing these now, starting with the null check..."
-**[Voice]** "All fixed! Running tests..."
-**[Voice]** "Tests passed! What's next?"
+Use the voice-box `speak` tool at key moments — starting a task, finishing one,
+hitting a problem, or asking a question. Keep it to a sentence or two of natural
+speech. Put detail (code, paths, errors, lists) in your text reply instead, since
+speech cannot be skimmed. Do not narrate every step.
 ```
-
-**📋 END OF COPYABLE SECTION**
 
 ---
 
-### Available Voices
+## Queue behaviour
 
-Choose from 9 voices (nova recommended for natural conversation):
-- **alloy** - Neutral, balanced
-- **ash** - Clear, articulate
-- **coral** - Warm, conversational
-- **echo** - Clear, expressive
-- **fable** - Warm, engaging
-- **nova** - Energetic, friendly ⭐
-- **onyx** - Deep, authoritative
-- **sage** - Calm, measured
-- **shimmer** - Soft, gentle
+One utterance plays at a time, because there is one pair of speakers.
 
-</details>
+- **Fair ordering.** Priority band first, then round-robin across agents. One chatty
+  agent cannot monopolise the speaker.
+- **Stale messages expire.** Default TTL is 120s. "Working on this now" heard four
+  minutes later is worse than silence.
+- **Muting is free.** Enforced before synthesis, so a muted agent costs nothing in API
+  credits.
+- **Backpressure is per-agent.** An agent that queues faster than the speaker is held
+  briefly; other agents are never blocked by it.
+- **Crashed agents are cleaned up.** Their pending routine messages are dropped.
+
+All of it is tunable in `~/.voice-box/config.json`.
 
 ---
 
-## Usage
+## CLI
 
-Once installed, use the `text_to_speech` tool in your MCP client:
-
-**Basic usage:**
 ```
-Use text_to_speech to say "Hello world"
-```
-
-**With specific voice:**
-```
-Use text_to_speech with the nova voice to say "I sound different now"
-```
-
-**With high quality:**
-```
-Use text_to_speech with model tts-1-hd to say "High quality audio"
+voice-box                    Start the daemon and open the control panel
+voice-box mcp                Run the MCP stdio server (what MCP clients invoke)
+voice-box status             Show agents and the queue as text
+voice-box speak <text>       Queue something to say, for testing
+voice-box keys set <p>       Store an API key (read from stdin, not argv)
+voice-box doctor --selftest  Diagnose the install and play a test tone
+voice-box start|stop|restart Manage the daemon
+voice-box logs [-n N]        Show the daemon log
 ```
 
-### Available Voices
+---
 
-- `alloy` - Neutral, balanced
-- `ash` - Clear, articulate
-- `coral` - Warm, conversational
-- `echo` - Clear, expressive
-- `fable` - Warm, engaging
-- `nova` - Energetic, friendly (default)
-- `onyx` - Deep, authoritative
-- `sage` - Calm, measured
-- `shimmer` - Soft, gentle
+## Configuration
 
-### Tool Parameters
+Everything lives in `~/.voice-box/` (mode `0700`):
 
-- `text` (required) - The text to speak
-- `voice` (optional) - Voice to use (default: nova)
-- `model` (optional) - tts-1 (faster) or tts-1-hd (higher quality, default: tts-1)
+| File | Contents |
+| --- | --- |
+| `config.json` | Settings and agent profiles. Contains no secrets — safe to share in a bug report. |
+| `secrets.json` | API keys, mode `0600`. |
+| `daemon.json` | Runtime pid, port, and auth token. Removed on clean shutdown. |
+| `history.jsonl` | What was spoken. |
+| `cache/` | Synthesized audio, content-addressed and pruned automatically. |
+
+Environment variables always take precedence over stored keys:
+
+```bash
+OPENAI_API_KEY=...  ELEVENLABS_API_KEY=...
+```
+
+Set `VOICE_BOX_HOME` to relocate the directory, or `VOICE_BOX_AGENT_NAME` in an MCP
+config to pin an agent's name.
+
+> On Windows, file permissions are inherited from your user profile — `chmod` is a no-op
+> there, so the `0600` protection described above does not apply.
+
+---
+
+## Privacy and security
+
+- The HTTP server binds **`127.0.0.1` only**. There is no setting to change that.
+- Requests are authenticated with a token regenerated on every daemon start, and
+  rejected if the `Host` or `Origin` header does not match loopback — which blocks
+  DNS-rebinding attacks from a malicious web page.
+- The panel receives your API key **only as a masked hint** (`sk-…a1b2`). The raw key
+  never leaves the daemon.
+- Logs pass through a redaction filter, so a key cannot be written to disk by accident.
+- The only network calls are to the TTS provider you configured.
 
 ---
 
 ## Troubleshooting
 
-### "ffmpeg not found"
-**Solution:** Make sure ffmpeg is installed and in your PATH. Test with:
-```bash
-ffmpeg -version
-```
+**No sound.** Run `voice-box doctor --selftest`. On Linux, install one of the players
+listed under Requirements.
 
-### "OPENAI_API_KEY environment variable is required"
-**Solution:** Check that your API key is correctly set in the MCP config file.
+**"No text-to-speech provider is configured."** Add a key in the SETUP tab, or set
+`OPENAI_API_KEY` before starting the daemon.
 
-### Audio not playing
-**Check:**
-1. System volume is up
-2. Default audio output device is working
-3. Try a different voice: `Use text_to_speech with the echo voice to say "test"`
+**The daemon will not start.** Run `voice-box daemon` in a terminal to see the error
+directly, or `voice-box logs`.
 
-### First-time slow startup
-**Normal:** The first run may take 30-60 seconds as npm installs dependencies. Subsequent runs are fast.
+**A stale agent is listed.** Use the ✕ button in CHANNELS to forget it.
 
-### Claude Desktop not detecting the server
-**Solution:**
-1. Verify the config file path is correct
-2. Check JSON syntax is valid (use https://jsonlint.com)
-3. Completely quit and restart Claude Desktop
-4. Check Claude Desktop logs for errors
-
-**macOS logs:**
-```bash
-tail -f ~/Library/Logs/Claude/mcp*.log
-```
-
-**Windows logs:**
-```
-%APPDATA%\Claude\logs\
-```
+**Port 4517 is taken.** Voice Box tries 4517–4527 automatically. Pin one with
+`daemon.port` in `config.json`.
 
 ---
 
-## How It Works
+## Upgrading from 1.x
 
-1. **OpenAI TTS** - Generates high-quality MP3 audio from text
-2. **ffmpeg** - Decodes MP3 to raw PCM audio (16-bit, 24kHz, mono)
-3. **speaker** - Plays PCM audio through your system's default audio output
+Voice Box 2.0 is a clean break.
 
-This streaming pipeline ensures low latency and smooth playback.
+| 1.x | 2.0 |
+| --- | --- |
+| `args: ["-y", "@anomalypoint/voice-box@latest"]` | add `"mcp"` as a final argument |
+| `env: { OPENAI_API_KEY }` in the MCP config | remove it; set the key in the panel |
+| `text_to_speech` tool | `speak` |
+| `voice` and `model` tool arguments | removed — voice is assigned in the panel |
+| ffmpeg required | no longer used |
 
 ---
 
 ## Development
 
-Want to modify or extend Voice Box?
-
 ```bash
-# Clone the repository
-git clone https://github.com/AnomalyPoint/voice-box.git
-cd voice-box
-
-# Install dependencies
 npm install
-
-# Run in development mode
-npm run dev
-
-# Build for production
 npm run build
-
-# Test locally
-node dist/index.js
+npm test
+npm run dev          # runs the CLI from source
 ```
 
----
-
-## Privacy & Security
-
-- **No data storage** - Audio is streamed and played in real-time, nothing is saved
-- **API key security** - Your OpenAI API key is stored locally in your MCP config
-- **Open source** - All code is visible and auditable
+No bundler and no CDN: the control panel is plain HTML, CSS, and ES modules, served
+straight from the package, and works offline.
 
 ---
 
 ## License
 
-ISC
-
----
-
-## Support
-
-- **Issues:** https://github.com/AnomalyPoint/voice-box/issues
-- **Docs:** https://github.com/AnomalyPoint/voice-box
-
-Made with Claude Code 🤖
+MIT — see [LICENSE](LICENSE).

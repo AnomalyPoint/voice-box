@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark light" />
+    <title>Voice Box</title>
+    <link rel="stylesheet" href="/style.css" />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%230d0f11'/%3E%3Crect x='3' y='6' width='2' height='4' fill='%23ffb020'/%3E%3Crect x='7' y='3' width='2' height='10' fill='%23ffb020'/%3E%3Crect x='11' y='5' width='2' height='6' fill='%23ffb020'/%3E%3C/svg%3E"
+    />
+    <script type="module" src="/app.js"></script>
+  </head>
+  <body>
+    <div class="scrim" aria-hidden="true"></div>
+
+    <header class="masthead">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">
+          <i class="bar"></i><i class="bar"></i><i class="bar"></i>
+        </span>
+        <h1>VOICE<span>BOX</span></h1>
+      </div>
+      <div class="masthead-meta">
+        <span class="lamp" id="conn-lamp" data-state="connecting"></span>
+        <span id="conn-label">connecting</span>
+        <span class="sep">/</span>
+        <span id="daemon-addr">&mdash;</span>
+        <span class="sep">/</span>
+        <span id="daemon-version">&mdash;</span>
+      </div>
+    </header>
+
+    <section class="transport" aria-label="Playback controls">
+      <div class="transport-buttons">
+        <button type="button" data-action="toggle-pause" id="pause-btn" class="tbtn">
+          <span class="glyph" id="pause-glyph">II</span><span id="pause-label">PAUSE</span>
+        </button>
+        <button type="button" data-action="skip" class="tbtn">
+          <span class="glyph">&#9197;</span>SKIP
+        </button>
+        <button type="button" data-action="clear" class="tbtn tbtn-danger">
+          <span class="glyph">&#10005;</span>CLEAR
+        </button>
+      </div>
+
+      <div class="now-playing" id="now-playing" data-active="false">
+        <div class="meter" aria-hidden="true">
+          <i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+        </div>
+        <div class="now-text">
+          <span class="now-agent" id="now-agent">idle</span>
+          <span class="now-line" id="now-line">nothing queued</span>
+        </div>
+        <span class="now-count" id="queue-count">0</span>
+      </div>
+    </section>
+
+    <nav class="tabs" role="tablist">
+      <button type="button" role="tab" data-tab="channels" class="tab is-active">CHANNELS</button>
+      <button type="button" role="tab" data-tab="cue" class="tab">CUE</button>
+      <button type="button" role="tab" data-tab="log" class="tab">LOG</button>
+      <button type="button" role="tab" data-tab="setup" class="tab">SETUP</button>
+      <button type="button" role="tab" data-tab="diag" class="tab">DIAG</button>
+    </nav>
+
+    <main>
+      <section class="panel" data-view="channels"><div id="channels"></div></section>
+      <section class="panel" data-view="cue" hidden><div id="cue"></div></section>
+      <section class="panel" data-view="log" hidden>
+        <div class="panel-head">
+          <h2>Spoken history</h2>
+          <button type="button" class="ghost" data-action="clear-history">clear log</button>
+        </div>
+        <div id="log"></div>
+      </section>
+      <section class="panel" data-view="setup" hidden><div id="setup"></div></section>
+      <section class="panel" data-view="diag" hidden><div id="diag"></div></section>
+    </main>
+
+    <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+    <!-- Cloned by app.js; keeps markup out of JavaScript string literals. -->
+    <template id="tpl-channel">
+      <article class="channel">
+        <span class="channel-chip" data-role="chip"></span>
+        <div class="channel-id">
+          <button type="button" class="channel-name" data-role="name" title="Click to rename"></button>
+          <span class="channel-project" data-role="project"></span>
+        </div>
+        <div class="channel-voice">
+          <select data-role="voice" aria-label="Voice"></select>
+          <button type="button" class="ghost mini" data-role="preview" title="Preview voice">&#9654;</button>
+        </div>
+        <label class="channel-level">
+          <input type="range" min="0" max="100" step="5" data-role="volume" aria-label="Volume" />
+          <span data-role="volume-value"></span>
+        </label>
+        <div class="channel-actions">
+          <button type="button" class="toggle" data-role="mute">MUTE</button>
+          <button type="button" class="ghost mini" data-role="remove" title="Forget this agent">&#10005;</button>
+        </div>
+      </article>
+    </template>
+
+    <template id="tpl-cue-row">
+      <li class="cue-row">
+        <span class="cue-pos" data-role="pos"></span>
+        <span class="cue-chip" data-role="chip"></span>
+        <span class="cue-agent" data-role="agent"></span>
+        <span class="cue-text" data-role="text"></span>
+        <span class="cue-eta" data-role="eta"></span>
+        <button type="button" class="ghost mini" data-role="skip" title="Skip">&#10005;</button>
+      </li>
+    </template>
+
+    <template id="tpl-log-row">
+      <li class="log-row">
+        <span class="log-time" data-role="time"></span>
+        <span class="log-agent" data-role="agent"></span>
+        <span class="log-text" data-role="text"></span>
+        <span class="log-status" data-role="status"></span>
+        <button type="button" class="ghost mini" data-role="replay" title="Replay">&#9654;</button>
+      </li>
+    </template>
+  </body>
+</html>
