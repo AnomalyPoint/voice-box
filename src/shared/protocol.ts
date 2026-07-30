@@ -10,7 +10,6 @@ import type {
   Priority,
   QueueSnapshot,
   UtteranceStatus,
-  VoiceDescriptor,
   VoiceSelection,
   WaitMode,
 } from "./types.js";
@@ -32,7 +31,7 @@ export interface DaemonState {
   pid: number;
   port: number;
   host: string;
-  /** Bearer token, regenerated on every daemon start. */
+  /** Bearer token. Persistent across restarts; rotate with `voice-box token --rotate`. */
   token: string;
   pkgVersion: string;
   protocolVersion: number;
@@ -128,16 +127,6 @@ export interface StateResponse {
   audioBackend: { id: string; label: string; executable: string | null };
   panelUrl: string;
 }
-
-export interface VoicesResponse {
-  voices: VoiceDescriptor[];
-}
-
-export type TransportCommand =
-  | { action: "pause" }
-  | { action: "resume" }
-  | { action: "skip"; id?: string }
-  | { action: "clear"; profileId?: string };
 
 // --- Errors ---------------------------------------------------------------
 

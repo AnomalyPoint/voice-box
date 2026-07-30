@@ -16,6 +16,7 @@ const SESSION_COOKIE = "voicebox_token";
 const sessionBody = z.object({ token: z.string().min(1) });
 const secretBody = z.object({ apiKey: z.string().min(8) });
 const previewBody = z.object({ voice: voiceSelectionSchema, text: z.string().max(200).optional() });
+const replayBody = z.object({ historyId: z.string().min(1) });
 
 const configPatchBody = z.object({
   audio: z
@@ -44,6 +45,16 @@ function requireProviderId(value: string): ProviderId {
   return value as ProviderId;
 }
 
+/** History stores the voice as "provider/voiceId"; recover a usable selection. */
+function parseVoiceLabel(label: string): { providerId: ProviderId; voiceId: string } | null {
+  const slash = label.indexOf("/");
+  if (slash === -1) return null;
+  const providerId = label.slice(0, slash);
+  const voiceId = label.slice(slash + 1);
+  if (!(PROVIDER_IDS as readonly string[]).includes(providerId) || !voiceId) return null;
+  return { providerId: providerId as ProviderId, voiceId };
+}
+
 /** Routes used only by the control panel. */
 export function buildPanelRoutes(ctx: DaemonContext): Route[] {
   return [
@@ -59,10 +70,12 @@ export function buildPanelRoutes(ctx: DaemonContext): Route[] {
           throw new VoiceBoxError("invalid_input", "Invalid token.");
         }
         // HttpOnly so panel scripts cannot read it back out; SameSite=Strict so
-        // no other site can ride it.
+        // no other site can ride it. 30 days: the token is stable across
+        // restarts now, and a daily re-sign-in on a loopback-only single-user
+        // panel is pure friction.
         request.res.setHeader(
           "Set-Cookie",
-          `${SESSION_COOKIE}=${encodeURIComponent(ctx.state.token)}; HttpOnly; SameSite=Strict; Path=/; Max-Age=86400`,
+          `${SESSION_COOKIE}=${encodeURIComponent(ctx.state.token)}; HttpOnly; SameSite=Strict; Path=/; Max-Age=2592000`,
         );
         return { ok: true };
       },
@@ -155,7 +168,60 @@ export function buildPanelRoutes(ctx: DaemonContext): Route[] {
     {
       method: "GET",
       path: "/history",
-      handler: async () => ({ entries: await ctx.history.recent() }),
+      handler: async (request) => {
+        const limitRaw = Number(request.url.searchParams.get("limit"));
+        const limit = Number.isInteger(limitRaw) && limitRaw > 0 ? Math.min(limitRaw, 1000) : 200;
+        const profileId = request.url.searchParams.get("profileId");
+        // Read extra when filtering so one chatty agent cannot push another's
+        // backlog out of the window.
+        const entries = await ctx.history.recent(profileId ? limit * 5 : limit);
+        const filtered = profileId
+          ? entries.filter((entry) => entry.profileId === profileId).slice(0, limit)
+          : entries;
+        return { entries: filtered };
+      },
+    },
+
+    {
+      method: "POST",
+      path: "/replay",
+      handler: async (request) => {
+        const body = await request.body(replayBody);
+        // Effectively the whole (2MB-rotated) log: anything the panel can
+        // show must be replayable.
+        const entries = await ctx.history.recent(20_000);
+        const entry = entries.find((candidate) => candidate.id === body.historyId);
+        if (!entry) {
+          throw new VoiceBoxError("invalid_input", "That history entry no longer exists.");
+        }
+
+        // Cached audio replays for free; otherwise re-synthesize from the
+        // stored text with the agent's current voice.
+        let file =
+          entry.audioKey !== undefined && (await ctx.cache.has(entry.audioKey))
+            ? ctx.cache.pathFor(entry.audioKey)
+            : null;
+        const profile = ctx.registry.getProfile(entry.profileId);
+        if (!file) {
+          const voice = profile?.voice ?? parseVoiceLabel(entry.voice) ?? null;
+          if (!voice) {
+            throw new VoiceBoxError(
+              "invalid_input",
+              "The audio is no longer cached and the original voice is unknown.",
+            );
+          }
+          file = (await ctx.synthesizer.synthesize(entry.text, voice)).file;
+        }
+
+        const volume = (profile?.volume ?? 1) * ctx.store.config.audio.volume;
+        const status = await ctx.scheduler.playUserAudio({
+          label: `${entry.agentLabel} (replay)`,
+          text: entry.text,
+          file,
+          volume,
+        });
+        return { ok: true, status };
+      },
     },
 
     {
@@ -200,15 +266,18 @@ export function buildPanelRoutes(ctx: DaemonContext): Route[] {
         const provider = ctx.providers.require(body.voice.providerId);
         if (!provider.isConfigured()) throw ctx.providers.notConfiguredError();
 
-        // Play straight through, bypassing the queue: this is the user clicking
-        // a button, not an agent talking, and it should be immediate.
-        const audio = await ctx.synthesizer.synthesize(
-          body.text ?? "This is how this voice sounds.",
-          body.voice,
-        );
-        const outcome = await ctx.player.play(audio.file, { volume: ctx.store.config.audio.volume })
-          .done;
-        return { played: outcome.status === "completed", audioKey: audio.key };
+        // Through the scheduler's user lane: immediate when the speakers are
+        // free, straight after the current line when they are not. Never talks
+        // over an agent -- the old direct-play version did exactly that.
+        const text = body.text ?? "This is how this voice sounds.";
+        const audio = await ctx.synthesizer.synthesize(text, body.voice);
+        const status = await ctx.scheduler.playUserAudio({
+          label: "voice preview",
+          text,
+          file: audio.file,
+          volume: ctx.store.config.audio.volume,
+        });
+        return { ok: true, status, audioKey: audio.key };
       },
     },
 

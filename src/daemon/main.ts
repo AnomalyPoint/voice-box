@@ -13,7 +13,7 @@ import { createRequestHandler } from "./http/server.js";
 import { EventHub } from "./http/events.js";
 import { buildRoutes } from "./http/routes.js";
 import { buildPanelRoutes } from "./http/routes.panel.js";
-import { claimDaemonRole, createDaemonState } from "./lifecycle.js";
+import { claimDaemonRole, createDaemonState, loadOrCreateToken } from "./lifecycle.js";
 import { ProviderRegistry } from "./providers/registry.js";
 
 export interface DaemonContext {
@@ -72,7 +72,7 @@ export async function runDaemon(): Promise<boolean> {
 
   // Fully built before the socket is bound, so the handler never observes a
   // half-initialised state. claimDaemonRole mutates `state.port` as it settles.
-  const state = createDaemonState(store.config.daemon.port);
+  const state = createDaemonState(store.config.daemon.port, await loadOrCreateToken(paths));
 
   const context: DaemonContext = {
     state,
@@ -114,18 +114,29 @@ export async function runDaemon(): Promise<boolean> {
   hub.start();
   void cache.prune();
 
-  // Push every scheduler change to any open panel.
+  // Push every scheduler change to any open panel. Sessions ride along so the
+  // live/offline dots never go stale.
   scheduler.onChange(() => {
-    hub.emit("queue", { queue: scheduler.snapshot(), profiles: registry.listProfiles() });
+    hub.emit("queue", {
+      queue: scheduler.snapshot(),
+      profiles: registry.listProfiles(),
+      sessions: registry.listSessions(),
+    });
   });
+
+  // Each settled utterance lands in the panel's backlog immediately.
+  scheduler.onHistory((entry) => hub.emit("history", { entry }));
 
   // Catch agents that died without saying goodbye, and drop their backlog so
   // a crashed session's queued lines do not play minutes later.
   const reaper = setInterval(() => {
-    for (const session of registry.reapDeadSessions()) {
+    const reaped = registry.reapDeadSessions();
+    if (reaped.length === 0) return;
+    for (const session of reaped) {
       logger.debug("agent process gone", { pid: session.pid });
       scheduler.onSessionEnd(session.profileId);
     }
+    hub.emit("state", { profiles: registry.listProfiles(), sessions: registry.listSessions() });
   }, 10_000);
   reaper.unref();
 

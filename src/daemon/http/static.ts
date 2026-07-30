@@ -17,9 +17,6 @@ const CONTENT_TYPES: Record<string, string> = {
   ".json": "application/json; charset=utf-8",
 };
 
-export function uiRoot(): string {
-  return UI_ROOT;
-}
 
 /**
  * Serve the control panel.

@@ -96,18 +96,21 @@ voice, and tells you where to change it.
 
 `npx @anomalypoint/voice-box` opens it at `http://127.0.0.1:4517`.
 
-| Tab | What it does |
-| --- | --- |
-| **CHANNELS** | Every agent as a channel strip: rename, assign a voice, preview it, set volume, mute, or forget the agent |
-| **CUE** | What is playing and what is queued, with per-item skip |
-| **LOG** | Everything that has been spoken, with replay |
-| **SETUP** | Provider keys (verified before saving), audio backend, master volume |
-| **DIAG** | Detected players, versions, live sessions |
+One column per agent — its queue, its full spoken history, and its controls (rename,
+voice, preview, volume, mute) all in one place. The transport bar on top always shows
+what is playing, with pause/resume, skip, and clear-queue. Queued messages carry
+**#1/#2/#3 badges in true play order** (the order the scheduler will actually serve
+them, across agents and priorities), with **PLAY NOW** and **REMOVE** on each. Every
+history entry has **REPLAY**; replays go through the same single playback lane, so
+they never talk over an agent. On narrow windows the columns collapse to one, with
+agent chips to flip between them. Settings (provider keys, audio backend, master
+volume) live in an overlay.
 
-The transport bar at the top pauses, skips, and clears the queue globally.
-
-**Pause** takes effect at the utterance boundary — the current line finishes rather than
-being cut off mid-sentence.
+**Pause is a real pause.** On macOS and Linux the player process is frozen mid-word
+(SIGSTOP) and resumes exactly where it stopped; on Windows the current line finishes
+and the queue holds. While paused, agents keep queueing and you can replay older
+messages — they play immediately, and resume returns to the live queue where it
+left off.
 
 ---
 
@@ -187,6 +190,7 @@ voice-box mcp                Run the MCP stdio server (what MCP clients invoke)
 voice-box status             Show agents and the queue as text
 voice-box speak <text>       Queue something to say, for testing
 voice-box keys set <p>       Store an API key (read from stdin, not argv)
+voice-box token --rotate     Replace the panel auth token
 voice-box doctor --selftest  Diagnose the install and play a test tone
 voice-box start|stop|restart Manage the daemon
 voice-box logs [-n N]        Show the daemon log
@@ -203,6 +207,7 @@ Everything lives in `~/.voice-box/` (mode `0700`):
 | `config.json` | Settings and agent profiles. Contains no secrets — safe to share in a bug report. |
 | `secrets.json` | API keys, mode `0600`. |
 | `daemon.json` | Runtime pid, port, and auth token. Removed on clean shutdown. |
+| `token` | Panel auth token, mode `0600`. Persists across restarts. |
 | `history.jsonl` | What was spoken. |
 | `cache/` | Synthesized audio, content-addressed and pruned automatically. |
 
@@ -223,9 +228,11 @@ config to pin an agent's name.
 ## Privacy and security
 
 - The HTTP server binds **`127.0.0.1` only**. There is no setting to change that.
-- Requests are authenticated with a token regenerated on every daemon start, and
-  rejected if the `Host` or `Origin` header does not match loopback — which blocks
-  DNS-rebinding attacks from a malicious web page.
+- Requests are authenticated with a 256-bit token stored at `~/.voice-box/token`
+  (mode `0600`) and rejected if the `Host` or `Origin` header does not match
+  loopback — which blocks DNS-rebinding attacks from a malicious web page. The token
+  persists across restarts so an open panel tab keeps working; rotate it any time
+  with `voice-box token --rotate`.
 - The panel receives your API key **only as a masked hint** (`sk-…a1b2`). The raw key
   never leaves the daemon.
 - Logs pass through a redaction filter, so a key cannot be written to disk by accident.

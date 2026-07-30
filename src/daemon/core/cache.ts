@@ -68,7 +68,25 @@ export class AudioCache {
     let bytesFreed = 0;
 
     try {
-      const names = (await readdir(this.dir)).filter((name) => name.endsWith(".mp3"));
+      const all = await readdir(this.dir);
+      const names = all.filter((name) => name.endsWith(".mp3"));
+
+      // A crash mid-write leaves `<key>.mp3.<pid>.tmp` orphans behind; collect
+      // any that are clearly not in-flight or they accumulate forever.
+      for (const name of all.filter((candidate) => candidate.includes(".tmp"))) {
+        const path = join(this.dir, name);
+        try {
+          const info = await stat(path);
+          if (Date.now() - info.mtimeMs > 60 * 60 * 1000) {
+            await unlink(path).catch(() => {});
+            removed++;
+            bytesFreed += info.size;
+          }
+        } catch {
+          /* vanished under us -- fine */
+        }
+      }
+
       const entries: { path: string; size: number; mtimeMs: number }[] = [];
 
       for (const name of names) {

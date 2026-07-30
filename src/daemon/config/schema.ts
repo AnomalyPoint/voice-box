@@ -66,7 +66,6 @@ export const configSchema = z.object({
     .object({
       port: z.number().int().min(1024).max(65535).default(DEFAULT_PORT),
       /** 0 means never shut down on its own -- the control panel may still be open. */
-      idleShutdownMinutes: z.number().min(0).default(0),
     })
     .default({}),
   queue: z

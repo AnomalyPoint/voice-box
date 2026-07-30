@@ -23,6 +23,10 @@ export interface QueueItem {
   startedAt?: number;
   finishedAt?: number;
   detail?: string;
+  /** User-initiated replay/preview: skip history logging when it settles. */
+  ephemeral?: boolean;
+  /** Pre-resolved audio file (replay from cache): playback skips synthesis. */
+  sourceFile?: string;
 }
 
 export interface EnqueueInput {
@@ -63,6 +67,8 @@ export class UtteranceQueue {
   /** Monotonic service counter per agent, used for round-robin fairness. */
   private readonly lastServed = new Map<string, number>();
   private serveCounter = 0;
+  /** One item promoted to play next ("play now" in the panel). */
+  private frontId: string | null = null;
 
   constructor(private limits: QueueLimits) {}
 
@@ -82,8 +88,40 @@ export class UtteranceQueue {
     return [...this.pending];
   }
 
-  find(id: string): QueueItem | undefined {
-    return this.pending.find((item) => item.id === id);
+  /**
+   * The pending items in the order dequeue() will actually serve them, without
+   * mutating queue state. This is what the panel's #1/#2/#3 badges show --
+   * insertion order lies whenever priorities or multiple agents are involved.
+   */
+  listInPlayOrder(now = Date.now()): QueueItem[] {
+    const remaining = this.pending.filter((item) => item.expiresAt > now);
+    const served = new Map(this.lastServed);
+    let counter = this.serveCounter;
+    const ordered: QueueItem[] = [];
+
+    const take = (item: QueueItem) => {
+      ordered.push(item);
+      remaining.splice(remaining.indexOf(item), 1);
+      served.set(item.profileId, ++counter);
+    };
+
+    if (this.frontId) {
+      const front = remaining.find((item) => item.id === this.frontId);
+      if (front) take(front);
+    }
+    for (;;) {
+      const next = selectNext(remaining, served, now);
+      if (!next) break;
+      take(next);
+    }
+    return ordered;
+  }
+
+  /** Mark an item to be served before everything else. Replaces any prior mark. */
+  promote(id: string): boolean {
+    if (!this.pending.some((item) => item.id === id)) return false;
+    this.frontId = id;
+    return true;
   }
 
   enqueue(input: EnqueueInput, now = Date.now()): EnqueueResult {
@@ -124,37 +162,25 @@ export class UtteranceQueue {
    * double-checks because expiry is time-based and the sweep is periodic.
    */
   dequeue(now = Date.now()): QueueItem | null {
-    for (const band of BANDS) {
-      const candidates = this.pending.filter(
-        (item) => item.priority === band && item.expiresAt > now,
+    // A promoted item beats everything. The mark is one-shot: it clears whether
+    // the item is served, was removed, or expired in the meantime.
+    if (this.frontId) {
+      const front = this.pending.find(
+        (item) => item.id === this.frontId && item.expiresAt > now,
       );
-      if (candidates.length === 0) continue;
-
-      // Least-recently-served agent first; ties broken by arrival order.
-      let best = candidates[0] as QueueItem;
-      let bestRank = this.lastServed.get(best.profileId) ?? -1;
-      for (const candidate of candidates.slice(1)) {
-        const rank = this.lastServed.get(candidate.profileId) ?? -1;
-        if (rank < bestRank) {
-          best = candidate;
-          bestRank = rank;
-          continue;
-        }
-        if (rank === bestRank && candidate.enqueuedAt < best.enqueuedAt) {
-          best = candidate;
-        }
+      this.frontId = null;
+      if (front) {
+        this.remove(front.id);
+        this.lastServed.set(front.profileId, ++this.serveCounter);
+        return front;
       }
-
-      // Within one agent, order is always strict FIFO.
-      const earliestForAgent = candidates
-        .filter((item) => item.profileId === best.profileId)
-        .sort((a, b) => a.enqueuedAt - b.enqueuedAt)[0] as QueueItem;
-
-      this.remove(earliestForAgent.id);
-      this.lastServed.set(earliestForAgent.profileId, ++this.serveCounter);
-      return earliestForAgent;
     }
-    return null;
+
+    const next = selectNext(this.pending, this.lastServed, now);
+    if (!next) return null;
+    this.remove(next.id);
+    this.lastServed.set(next.profileId, ++this.serveCounter);
+    return next;
   }
 
   remove(id: string): QueueItem | null {
@@ -206,6 +232,43 @@ export class UtteranceQueue {
     const oldest = [...this.pending].sort((a, b) => a.enqueuedAt - b.enqueuedAt)[0];
     return oldest ? this.remove(oldest.id) : null;
   }
+}
+
+/**
+ * Pick the next item to serve: highest priority band, then least-recently-served
+ * agent (round-robin fairness), then FIFO within that agent. Shared between
+ * dequeue() and listInPlayOrder() so the panel can never disagree with playback.
+ */
+function selectNext(
+  pending: readonly QueueItem[],
+  lastServed: ReadonlyMap<string, number>,
+  now: number,
+): QueueItem | null {
+  for (const band of BANDS) {
+    const candidates = pending.filter((item) => item.priority === band && item.expiresAt > now);
+    if (candidates.length === 0) continue;
+
+    // Least-recently-served agent first; ties broken by arrival order.
+    let best = candidates[0] as QueueItem;
+    let bestRank = lastServed.get(best.profileId) ?? -1;
+    for (const candidate of candidates.slice(1)) {
+      const rank = lastServed.get(candidate.profileId) ?? -1;
+      if (rank < bestRank) {
+        best = candidate;
+        bestRank = rank;
+        continue;
+      }
+      if (rank === bestRank && candidate.enqueuedAt < best.enqueuedAt) {
+        best = candidate;
+      }
+    }
+
+    // Within one agent, order is always strict FIFO.
+    return candidates
+      .filter((item) => item.profileId === best.profileId)
+      .sort((a, b) => a.enqueuedAt - b.enqueuedAt)[0] as QueueItem;
+  }
+  return null;
 }
 
 export function toUtterance(item: QueueItem): Utterance {

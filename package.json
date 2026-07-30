@@ -1,6 +1,6 @@
 {
   "name": "@anomalypoint/voice-box",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "description": "Local voice control panel for AI agents. Give each agent its own voice, queue and manage what they say, with OpenAI or ElevenLabs TTS.",
   "type": "module",
   "main": "dist/cli.js",

@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import { readFile, writeFile } from "node:fs/promises";
 import type { RequestListener, Server } from "node:http";
 import { createServer } from "node:http";
 
@@ -10,7 +11,7 @@ import {
   removeDaemonStateFile,
 } from "../shared/daemonState.js";
 import type { Logger } from "../shared/log.js";
-import type { VoiceBoxPaths } from "../shared/paths.js";
+import { SECRET_FILE_MODE, type VoiceBoxPaths } from "../shared/paths.js";
 import type { DaemonState } from "../shared/protocol.js";
 import { PKG_VERSION, PROTOCOL_VERSION } from "../version.js";
 import { MAX_PORT_ATTEMPTS } from "./config/schema.js";
@@ -34,15 +35,39 @@ export interface ClaimOptions {
   logger: Logger;
 }
 
+/**
+ * The auth token, persisted across restarts.
+ *
+ * Regenerating per start sounded safer but silently 401'd every open panel tab
+ * the moment the daemon restarted -- the panel's cookie outlived the token it
+ * was minted from, and every button just died. The token is loopback-only and
+ * lives in a 0600 file; rotate it explicitly with `voice-box token --rotate`.
+ */
+export async function loadOrCreateToken(paths: VoiceBoxPaths): Promise<string> {
+  try {
+    const existing = (await readFile(paths.tokenFile, "utf8")).trim();
+    if (/^[A-Za-z0-9_-]{40,}$/.test(existing)) return existing;
+  } catch {
+    /* no token yet */
+  }
+  return rotateToken(paths);
+}
+
+/** Write a fresh 256-bit token, invalidating every existing cookie. */
+export async function rotateToken(paths: VoiceBoxPaths): Promise<string> {
+  const token = randomBytes(32).toString("base64url");
+  await writeFile(paths.tokenFile, `${token}\n`, { mode: SECRET_FILE_MODE });
+  return token;
+}
+
 /** Build the state a daemon will publish once it wins the port. */
-export function createDaemonState(port: number): DaemonState {
+export function createDaemonState(port: number, token: string): DaemonState {
   return {
     schemaVersion: 1,
     pid: process.pid,
     port,
     host: BIND_HOST,
-    // 256 bits, regenerated per start so a leaked token dies with the process.
-    token: randomBytes(32).toString("base64url"),
+    token,
     pkgVersion: PKG_VERSION,
     protocolVersion: PROTOCOL_VERSION,
     startedAt: new Date().toISOString(),
@@ -143,12 +168,8 @@ async function claimStateFile(
 
 function tryListen(server: Server, port: number): Promise<boolean> {
   return new Promise((resolve) => {
-    const onError = (error: NodeJS.ErrnoException) => {
+    const onError = () => {
       server.removeListener("listening", onListening);
-      if (error.code === "EADDRINUSE" || error.code === "EACCES") {
-        resolve(false);
-        return;
-      }
       resolve(false);
     };
     const onListening = () => {

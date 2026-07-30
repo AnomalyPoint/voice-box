@@ -20,6 +20,8 @@ export interface VoiceBoxPaths {
   secretsFile: string;
   /** Live daemon coordinates: pid, port, auth token. Removed on clean shutdown. */
   daemonFile: string;
+  /** Persistent auth token, so an open panel tab survives daemon restarts. */
+  tokenFile: string;
   /** Advisory mutex preventing a thundering herd of daemon spawns. */
   lockFile: string;
   historyFile: string;
@@ -35,6 +37,7 @@ export function getPaths(home = voiceBoxHome()): VoiceBoxPaths {
     configFile: join(home, "config.json"),
     secretsFile: join(home, "secrets.json"),
     daemonFile: join(home, "daemon.json"),
+    tokenFile: join(home, "token"),
     lockFile: join(home, "daemon.lock"),
     historyFile: join(home, "history.jsonl"),
     logsDir: join(home, "logs"),

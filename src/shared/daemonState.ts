@@ -115,7 +115,3 @@ export async function probeDaemon(
   }
 }
 
-/** True when the recorded daemon is actually reachable and is ours. */
-export async function isDaemonLive(state: DaemonState, timeoutMs = 750): Promise<boolean> {
-  return (await probeDaemon(state.host, state.port, timeoutMs)) !== null;
-}

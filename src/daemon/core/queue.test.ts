@@ -157,6 +157,60 @@ test("clear can target a single agent", () => {
   assert.deepEqual(drain(queue), ["B:b1"]);
 });
 
+test("listInPlayOrder matches what dequeue actually serves", () => {
+  const queue = new UtteranceQueue(limits());
+  queue.enqueue(input("A", "a1"), T0 + 1000);
+  queue.enqueue(input("A", "a2"), T0 + 1001);
+  queue.enqueue(input("B", "b1", { priority: "high" }), T0 + 1002);
+  queue.enqueue(input("C", "c1"), T0 + 1003);
+  queue.enqueue(input("B", "b2"), T0 + 1004);
+
+  const predicted = queue
+    .listInPlayOrder(T0 + 10)
+    .map((item) => `${item.profileId}:${item.text}`);
+  const actual = drain(queue);
+  assert.deepEqual(predicted, actual, "the panel's order badges must never lie");
+});
+
+test("listInPlayOrder does not mutate the queue", () => {
+  const queue = new UtteranceQueue(limits());
+  queue.enqueue(input("A", "a1"), T0 + 1000);
+  queue.enqueue(input("B", "b1"), T0 + 1001);
+
+  const first = queue.listInPlayOrder(T0 + 10).map((item) => item.id);
+  const second = queue.listInPlayOrder(T0 + 10).map((item) => item.id);
+  assert.deepEqual(first, second);
+  assert.equal(queue.depth, 2);
+});
+
+test("a promoted item is served before everything, including urgent", () => {
+  const queue = new UtteranceQueue(limits());
+  queue.enqueue(input("A", "urgent", { priority: "urgent" }), T0 + 1000);
+  const target = queue.enqueue(input("B", "promoted", { priority: "low" }), T0 + 1001);
+  assert.ok(target.ok);
+
+  assert.ok(queue.promote(target.item.id));
+  const predicted = queue.listInPlayOrder(T0 + 10).map((item) => item.text);
+  assert.equal(predicted[0], "promoted");
+
+  const order = drain(queue);
+  assert.equal(order[0], "B:promoted");
+  assert.equal(order[1], "A:urgent");
+});
+
+test("promote is one-shot and survives a removed target", () => {
+  const queue = new UtteranceQueue(limits());
+  const target = queue.enqueue(input("A", "a1"), T0 + 1000);
+  queue.enqueue(input("B", "b1"), T0 + 1001);
+  assert.ok(target.ok);
+
+  queue.promote(target.item.id);
+  queue.remove(target.item.id);
+  // The mark points at a gone item; dequeue must fall through cleanly.
+  assert.equal(queue.dequeue(T0 + 10)?.text, "b1");
+  assert.equal(queue.promote("nonexistent"), false);
+});
+
 test("round-robin keeps rotating across three agents", () => {
   const queue = new UtteranceQueue(limits());
   for (const agent of ["A", "B", "C"]) {

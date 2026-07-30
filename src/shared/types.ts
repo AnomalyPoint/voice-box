@@ -98,7 +98,6 @@ export interface AgentSession {
 export const UTTERANCE_STATUSES = [
   "queued",
   "synthesizing",
-  "ready",
   "playing",
   "played",
   "skipped",
@@ -141,10 +140,22 @@ export interface Utterance {
   detail?: string;
 }
 
+/** User-initiated audio (replay of a history entry, or a voice preview). */
+export interface UserPlayback {
+  label: string;
+  text: string;
+  startedAt: string;
+}
+
 export interface QueueSnapshot {
   playing: Utterance | null;
+  /** In actual play order -- what the panel's #1/#2/#3 badges show. */
   pending: Utterance[];
   paused: boolean;
+  /** True when the current utterance is frozen mid-word by a hard pause. */
+  frozenMidUtterance: boolean;
+  /** Set while a replay/preview is sounding outside the agent queue. */
+  userPlayback: UserPlayback | null;
 }
 
 /**

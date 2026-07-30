@@ -62,7 +62,8 @@ export function registerTools(
         voice: z.string(),
         note: z.string().optional(),
       },
-      annotations: { readOnlyHint: true, openWorldHint: false },
+      // Not readOnly: it plays audio and spends provider credits.
+      annotations: { readOnlyHint: false, openWorldHint: false },
     },
     async ({ text, priority, wait }) => {
       try {

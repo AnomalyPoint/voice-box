@@ -279,7 +279,17 @@ export class AgentRegistry {
    */
   private async nextUnusedVoice(projectPath: string): Promise<VoiceSelection> {
     const projectDefault = this.store.config.projects[projectPath]?.defaultVoice;
-    const base = this.providers.resolveVoice(projectDefault);
+
+    let base: VoiceSelection;
+    try {
+      base = this.providers.resolveVoice(projectDefault);
+    } catch {
+      // No provider key yet. Register with the stock default anyway: the
+      // profile must exist so the panel can show the agent and say what to
+      // fix. Refusing here used to make every tool call fail on fresh
+      // installs -- including the status call that explains the problem.
+      return this.store.config.voice.default;
+    }
 
     const provider = this.providers.require(base.providerId);
     let catalogue: VoiceSelection[] = [];

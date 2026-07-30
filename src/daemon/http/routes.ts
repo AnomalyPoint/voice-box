@@ -41,6 +41,7 @@ const commandBody = z.discriminatedUnion("action", [
   z.object({ action: z.literal("pause") }),
   z.object({ action: z.literal("resume") }),
   z.object({ action: z.literal("skip"), id: z.string().optional() }),
+  z.object({ action: z.literal("play_now"), id: z.string().min(1) }),
   z.object({ action: z.literal("clear"), profileId: z.string().optional() }),
 ]);
 
@@ -53,6 +54,13 @@ const voicePatchBody = z.object({
 
 export function buildRoutes(ctx: DaemonContext): Route[] {
   const panelUrl = () => `http://${ctx.state.host}:${ctx.state.port}`;
+  // Any change to who is connected or what they are called goes to the panel
+  // at once -- a new agent must appear before it ever speaks.
+  const emitState = () =>
+    ctx.hub.emit("state", {
+      profiles: ctx.registry.listProfiles(),
+      sessions: ctx.registry.listSessions(),
+    });
 
   return [
     {
@@ -77,6 +85,7 @@ export function buildRoutes(ctx: DaemonContext): Route[] {
       handler: async (request): Promise<RegisterSessionResponse> => {
         const body = await request.body(registerSessionBody);
         const binding = await ctx.registry.registerSession(body);
+        emitState();
         const audioWarning =
           ctx.player.backend.executable === null
             ? "No audio player was found, so speech will not be audible."
@@ -97,7 +106,10 @@ export function buildRoutes(ctx: DaemonContext): Route[] {
       path: "/sessions/:id",
       handler: (request) => {
         const session = ctx.registry.endSession(request.params["id"] ?? "");
-        if (session) ctx.scheduler.onSessionEnd(session.profileId);
+        if (session) {
+          ctx.scheduler.onSessionEnd(session.profileId);
+          emitState();
+        }
         return { ok: true };
       },
     },
@@ -183,6 +195,8 @@ export function buildRoutes(ctx: DaemonContext): Route[] {
             return { ok: true, paused: false };
           case "skip":
             return { ok: ctx.scheduler.skip(command.id) };
+          case "play_now":
+            return { ok: ctx.scheduler.playNow(command.id) };
           case "clear":
             return { ok: true, cleared: ctx.scheduler.clear(command.profileId) };
         }
@@ -206,6 +220,7 @@ export function buildRoutes(ctx: DaemonContext): Route[] {
         if (body.volume !== undefined) {
           profile = await ctx.registry.setVolume(profileId, body.volume);
         }
+        emitState();
         return { profile };
       },
     },

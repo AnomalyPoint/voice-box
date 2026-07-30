@@ -13,8 +13,7 @@ export type EventType =
   | "state"
   | "queue"
   | "history"
-  | "config"
-  | "diagnostics";
+  | "config";
 
 interface StoredEvent {
   seq: number;
@@ -54,10 +53,6 @@ export class EventHub {
     if (this.keepalive) clearInterval(this.keepalive);
     for (const client of this.clients) client.end();
     this.clients.clear();
-  }
-
-  get clientCount(): number {
-    return this.clients.size;
   }
 
   /** Attach a browser. Sends a full snapshot, then deltas. */

@@ -1,128 +1,228 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="color-scheme" content="dark light" />
-    <title>Voice Box</title>
-    <link rel="stylesheet" href="/style.css" />
-    <link
-      rel="icon"
-      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%230d0f11'/%3E%3Crect x='3' y='6' width='2' height='4' fill='%23ffb020'/%3E%3Crect x='7' y='3' width='2' height='10' fill='%23ffb020'/%3E%3Crect x='11' y='5' width='2' height='6' fill='%23ffb020'/%3E%3C/svg%3E"
-    />
-    <script type="module" src="/app.js"></script>
-  </head>
-  <body>
-    <div class="scrim" aria-hidden="true"></div>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Voice Box</title>
+  <link rel="stylesheet" href="/style.css" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='4' fill='%23a78bfa'/%3E%3Cpath stroke='%23150d2b' stroke-width='1.8' stroke-linecap='round' fill='none' d='M4 6.5v3M6 4.5v7M8 2.5v11M10 4.5v7M12 6.5v3'/%3E%3C/svg%3E" />
+  <script type="module" src="/app.js"></script>
+</head>
+<body>
 
-    <header class="masthead">
-      <div class="brand">
-        <span class="brand-mark" aria-hidden="true">
-          <i class="bar"></i><i class="bar"></i><i class="bar"></i>
-        </span>
-        <h1>VOICE<span>BOX</span></h1>
-      </div>
-      <div class="masthead-meta">
-        <span class="lamp" id="conn-lamp" data-state="connecting"></span>
-        <span id="conn-label">connecting</span>
-        <span class="sep">/</span>
-        <span id="daemon-addr">&mdash;</span>
-        <span class="sep">/</span>
-        <span id="daemon-version">&mdash;</span>
-      </div>
-    </header>
+<!-- SVG icon sprite -->
+<svg width="0" height="0" class="sprite" aria-hidden="true">
+  <defs>
+    <symbol id="i-pause" viewBox="0 0 16 16"><path fill="currentColor" d="M4 2.5h3.2v11H4zM8.8 2.5H12v11H8.8z"/></symbol>
+    <symbol id="i-play" viewBox="0 0 16 16"><path fill="currentColor" d="M4.5 2.5v11l8.5-5.5z"/></symbol>
+    <symbol id="i-skip" viewBox="0 0 16 16"><path fill="currentColor" d="M3 2.5v11l7-5.5zM11.2 2.5h2.3v11h-2.3z"/></symbol>
+    <symbol id="i-x" viewBox="0 0 16 16"><path stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M3.5 3.5l9 9M12.5 3.5l-9 9" fill="none"/></symbol>
+    <symbol id="i-replay" viewBox="0 0 16 16"><path stroke="currentColor" stroke-width="1.8" stroke-linecap="round" fill="none" d="M13 8A5 5 0 1 1 9.5 3.2"/><path fill="currentColor" d="M9 .8l1 4-4-.8z"/></symbol>
+    <symbol id="i-mute" viewBox="0 0 16 16"><path fill="currentColor" d="M2 6v4h2.8L9 13.5v-11L4.8 6z"/><path stroke="currentColor" stroke-width="1.6" stroke-linecap="round" d="M11 6l4 4M15 6l-4 4" fill="none"/></symbol>
+    <symbol id="i-speaker" viewBox="0 0 16 16"><path fill="currentColor" d="M2 6v4h2.8L9 13.5v-11L4.8 6z"/><path stroke="currentColor" stroke-width="1.6" stroke-linecap="round" fill="none" d="M11 5.5a3.5 3.5 0 0 1 0 5M12.8 3.5a6 6 0 0 1 0 9"/></symbol>
+    <symbol id="i-gear" viewBox="0 0 16 16"><circle cx="8" cy="8" r="2.2" stroke="currentColor" stroke-width="1.6" fill="none"/><path stroke="currentColor" stroke-width="1.6" stroke-linecap="round" fill="none" d="M8 1.8v2M8 12.2v2M1.8 8h2M12.2 8h2M3.6 3.6l1.4 1.4M11 11l1.4 1.4M12.4 3.6L11 5M5 11l-1.4 1.4"/></symbol>
+    <symbol id="i-pen" viewBox="0 0 16 16"><path stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" fill="none" d="M9.8 2.8l3.4 3.4L5.7 13.7l-3.9.5.5-3.9zM8.6 4l3.4 3.4"/></symbol>
+    <symbol id="i-wave" viewBox="0 0 16 16"><path stroke="currentColor" stroke-width="1.8" stroke-linecap="round" fill="none" d="M2 6.5v3M5 4.5v7M8 2.5v11M11 4.5v7M14 6.5v3"/></symbol>
+  </defs>
+</svg>
 
-    <section class="transport" aria-label="Playback controls">
-      <div class="transport-buttons">
-        <button type="button" data-action="toggle-pause" id="pause-btn" class="tbtn">
-          <span class="glyph" id="pause-glyph">II</span><span id="pause-label">PAUSE</span>
-        </button>
-        <button type="button" data-action="skip" class="tbtn">
-          <span class="glyph">&#9197;</span>SKIP
-        </button>
-        <button type="button" data-action="clear" class="tbtn tbtn-danger">
-          <span class="glyph">&#10005;</span>CLEAR
-        </button>
-      </div>
+<!-- Connection banner (hidden unless something is wrong) -->
+<div id="banner" class="banner" hidden></div>
 
-      <div class="now-playing" id="now-playing" data-active="false">
-        <div class="meter" aria-hidden="true">
-          <i></i><i></i><i></i><i></i><i></i><i></i><i></i>
-        </div>
-        <div class="now-text">
-          <span class="now-agent" id="now-agent">idle</span>
-          <span class="now-line" id="now-line">nothing queued</span>
-        </div>
-        <span class="now-count" id="queue-count">0</span>
+<!-- ═══════════ TRANSPORT ═══════════ -->
+<header class="transport">
+  <div class="brand" title="Voice Box"><svg width="14" height="14"><use href="#i-wave"/></svg></div>
+  <div class="state-block">
+    <span class="state-label" id="stateLabel"><span class="dot"></span><span id="stateWord">IDLE</span></span>
+    <span class="state-time" id="stateTime"></span>
+  </div>
+  <div class="now" id="nowWrap">
+    <div class="now-meta">
+      <span class="now-agent" id="nowAgent"></span>
+      <span class="paused-note" id="pausedNote" hidden>paused — new speech queues until you resume</span>
+    </div>
+    <div class="now-text" id="nowText">Nothing is playing.</div>
+  </div>
+  <div class="controls">
+    <button class="btn btn-primary" id="pauseBtn" data-action="toggle-pause">
+      <svg width="13" height="13" id="pauseIcon"><use href="#i-pause"/></svg><span class="lbl" id="pauseLbl">PAUSE</span>
+    </button>
+    <button class="btn" data-action="skip-current" title="Skip the current message">
+      <svg width="13" height="13"><use href="#i-skip"/></svg><span class="lbl">SKIP</span>
+    </button>
+    <button class="btn" data-action="clear-queue" title="Clear all queued messages">
+      <svg width="12" height="12"><use href="#i-x"/></svg><span class="lbl">CLEAR QUEUE</span>
+    </button>
+    <span class="queue-count" id="queueCount"></span>
+    <button class="icon-btn" data-action="open-settings" title="Settings">
+      <svg width="15" height="15"><use href="#i-gear"/></svg>
+    </button>
+  </div>
+  <div class="transport-progress"><div class="fill" id="progressFill"></div></div>
+</header>
+
+<!-- Mobile agent switcher -->
+<div class="chip-bar" id="chipBar" hidden></div>
+
+<!-- ═══════════ AGENT COLUMNS ═══════════ -->
+<main class="deck" id="deck">
+  <div class="empty-hero" id="emptyHero" hidden>
+    <svg width="40" height="40" class="hero-icon"><use href="#i-wave"/></svg>
+    <h2>No agents yet</h2>
+    <p>Agents appear here the moment their MCP client connects.</p>
+    <p class="hero-hint" id="heroHint" hidden>No TTS provider is configured — <button class="link-btn" data-action="open-settings">add an API key</button> so agents can speak.</p>
+  </div>
+</main>
+
+<!-- ═══════════ SETTINGS OVERLAY ═══════════ -->
+<div class="overlay" id="settingsOverlay" hidden>
+  <div class="overlay-panel">
+    <div class="overlay-head">
+      <h2>Settings</h2>
+      <button class="icon-btn" data-action="close-settings" title="Close">
+        <svg width="13" height="13"><use href="#i-x"/></svg>
+      </button>
+    </div>
+
+    <section class="set-section">
+      <h3 class="k">TTS PROVIDERS</h3>
+      <div id="providerCards"></div>
+    </section>
+
+    <section class="set-section">
+      <h3 class="k">AUDIO OUTPUT</h3>
+      <div class="set-row">
+        <label for="backendSelect">Player</label>
+        <select id="backendSelect" data-change="backend"></select>
+      </div>
+      <div class="set-row">
+        <label for="masterVolume">Master volume</label>
+        <input type="range" id="masterVolume" min="0" max="100" data-change="master-volume" />
+        <span class="set-value" id="masterVolumeValue"></span>
+      </div>
+      <p class="set-note" id="audioNote"></p>
+    </section>
+
+    <section class="set-section">
+      <h3 class="k">HISTORY</h3>
+      <div class="set-row">
+        <button class="btn" data-action="clear-history"><svg width="11" height="11"><use href="#i-x"/></svg><span class="lbl">CLEAR ALL HISTORY</span></button>
       </div>
     </section>
 
-    <nav class="tabs" role="tablist">
-      <button type="button" role="tab" data-tab="channels" class="tab is-active">CHANNELS</button>
-      <button type="button" role="tab" data-tab="cue" class="tab">CUE</button>
-      <button type="button" role="tab" data-tab="log" class="tab">LOG</button>
-      <button type="button" role="tab" data-tab="setup" class="tab">SETUP</button>
-      <button type="button" role="tab" data-tab="diag" class="tab">DIAG</button>
-    </nav>
+    <section class="set-section">
+      <h3 class="k">DAEMON</h3>
+      <p class="set-note mono" id="daemonInfo"></p>
+    </section>
+  </div>
+</div>
 
-    <main>
-      <section class="panel" data-view="channels"><div id="channels"></div></section>
-      <section class="panel" data-view="cue" hidden><div id="cue"></div></section>
-      <section class="panel" data-view="log" hidden>
-        <div class="panel-head">
-          <h2>Spoken history</h2>
-          <button type="button" class="ghost" data-action="clear-history">clear log</button>
-        </div>
-        <div id="log"></div>
-      </section>
-      <section class="panel" data-view="setup" hidden><div id="setup"></div></section>
-      <section class="panel" data-view="diag" hidden><div id="diag"></div></section>
-    </main>
+<!-- Toast -->
+<div id="toast" class="toast" hidden></div>
 
-    <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+<!-- ═══════════ TEMPLATES ═══════════ -->
+<template id="tpl-column">
+  <section class="col">
+    <div class="col-head">
+      <div class="col-title">
+        <span class="agent-dot"></span>
+        <span class="col-name"></span>
+        <button class="icon-btn tiny rename-btn" data-action="rename" title="Rename this agent">
+          <svg width="11" height="11"><use href="#i-pen"/></svg>
+        </button>
+        <span class="col-status"></span>
+        <span class="spacer"></span>
+        <button class="mini-btn danger forget-btn" data-action="forget" title="Forget this agent" hidden>
+          <svg width="9" height="9"><use href="#i-x"/></svg>FORGET
+        </button>
+      </div>
+      <div class="col-path"></div>
+      <div class="col-tools">
+        <select class="voice-select" data-change="voice" title="Voice"></select>
+        <button class="icon-btn" data-action="preview" title="Preview this voice"><svg width="13" height="13"><use href="#i-play"/></svg></button>
+        <button class="icon-btn mute-btn" data-action="mute" title="Mute this agent"><svg width="14" height="14"><use href="#i-speaker"/></svg></button>
+      </div>
+      <div class="col-volume">
+        <span class="k">VOLUME</span>
+        <input type="range" min="0" max="100" data-change="volume" />
+      </div>
+    </div>
+    <div class="col-body">
+      <div class="queue-section" hidden>
+        <div class="section-head k">QUEUE</div>
+        <div class="stack queue-stack"></div>
+      </div>
+      <div class="history-section">
+        <div class="section-head k">HISTORY</div>
+        <div class="stack history-stack"></div>
+        <p class="empty-note" hidden>Nothing spoken yet.</p>
+      </div>
+    </div>
+  </section>
+</template>
 
-    <!-- Cloned by app.js; keeps markup out of JavaScript string literals. -->
-    <template id="tpl-channel">
-      <article class="channel">
-        <span class="channel-chip" data-role="chip"></span>
-        <div class="channel-id">
-          <button type="button" class="channel-name" data-role="name" title="Click to rename"></button>
-          <span class="channel-project" data-role="project"></span>
-        </div>
-        <div class="channel-voice">
-          <select data-role="voice" aria-label="Voice"></select>
-          <button type="button" class="ghost mini" data-role="preview" title="Preview voice">&#9654;</button>
-        </div>
-        <label class="channel-level">
-          <input type="range" min="0" max="100" step="5" data-role="volume" aria-label="Volume" />
-          <span data-role="volume-value"></span>
-        </label>
-        <div class="channel-actions">
-          <button type="button" class="toggle" data-role="mute">MUTE</button>
-          <button type="button" class="ghost mini" data-role="remove" title="Forget this agent">&#10005;</button>
-        </div>
-      </article>
-    </template>
+<template id="tpl-queue-card">
+  <article class="msg queued">
+    <div class="msg-head">
+      <span class="badge queued order-badge"></span>
+      <span class="spacer"></span>
+      <span class="msg-actions">
+        <button class="mini-btn" data-action="play-now" title="Play this next, ahead of the queue"><svg width="10" height="10"><use href="#i-play"/></svg>PLAY NOW</button>
+        <button class="mini-btn danger" data-action="remove-queued" title="Remove from queue without playing"><svg width="9" height="9"><use href="#i-x"/></svg>REMOVE</button>
+      </span>
+    </div>
+    <div class="msg-text"></div>
+  </article>
+</template>
 
-    <template id="tpl-cue-row">
-      <li class="cue-row">
-        <span class="cue-pos" data-role="pos"></span>
-        <span class="cue-chip" data-role="chip"></span>
-        <span class="cue-agent" data-role="agent"></span>
-        <span class="cue-text" data-role="text"></span>
-        <span class="cue-eta" data-role="eta"></span>
-        <button type="button" class="ghost mini" data-role="skip" title="Skip">&#10005;</button>
-      </li>
-    </template>
+<template id="tpl-playing-card">
+  <article class="msg playing">
+    <div class="msg-head">
+      <span class="badge playing"><svg width="9" height="9"><use href="#i-play"/></svg><span class="badge-word">PLAYING</span></span>
+      <span class="spacer"></span>
+      <span class="msg-actions">
+        <button class="mini-btn" data-action="skip-current" title="Skip this message"><svg width="10" height="10"><use href="#i-skip"/></svg>SKIP</button>
+      </span>
+    </div>
+    <div class="msg-text"></div>
+  </article>
+</template>
 
-    <template id="tpl-log-row">
-      <li class="log-row">
-        <span class="log-time" data-role="time"></span>
-        <span class="log-agent" data-role="agent"></span>
-        <span class="log-text" data-role="text"></span>
-        <span class="log-status" data-role="status"></span>
-        <button type="button" class="ghost mini" data-role="replay" title="Replay">&#9654;</button>
-      </li>
-    </template>
-  </body>
+<template id="tpl-history-card">
+  <article class="msg dim">
+    <div class="msg-head">
+      <span class="msg-time"></span>
+      <span class="badge status-badge" hidden></span>
+      <span class="spacer"></span>
+      <span class="msg-actions">
+        <button class="mini-btn replay-btn" data-action="replay" title="Play this message again"><svg width="11" height="11"><use href="#i-replay"/></svg>REPLAY</button>
+      </span>
+    </div>
+    <div class="msg-text"></div>
+    <div class="msg-sub" hidden></div>
+  </article>
+</template>
+
+<template id="tpl-chip">
+  <button class="chip" data-action="select-agent">
+    <span class="cdot"></span><span class="chip-name"></span><span class="chip-n" hidden></span>
+  </button>
+</template>
+
+<template id="tpl-provider-card">
+  <div class="provider-card">
+    <div class="set-row">
+      <span class="provider-name"></span>
+      <span class="badge provider-state"></span>
+      <span class="provider-hint mono"></span>
+    </div>
+    <div class="set-row key-row">
+      <input type="password" class="key-input" name="voicebox-api-key" placeholder="Paste API key" autocomplete="new-password" />
+      <button class="btn" data-action="save-key"><span class="lbl">VERIFY &amp; SAVE</span></button>
+      <button class="btn remove-key-btn" data-action="remove-key" hidden><span class="lbl">REMOVE</span></button>
+    </div>
+  </div>
+</template>
+
+</body>
 </html>

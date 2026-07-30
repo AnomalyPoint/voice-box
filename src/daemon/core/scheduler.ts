@@ -2,11 +2,11 @@ import { EventEmitter } from "node:events";
 
 import { VoiceBoxError, toVoiceBoxError, errorMessage } from "../../shared/errors.js";
 import type { Logger } from "../../shared/log.js";
-import type { Priority, QueueSnapshot, WaitMode } from "../../shared/types.js";
+import type { Priority, QueueSnapshot, UserPlayback, WaitMode } from "../../shared/types.js";
 import { isTerminal } from "../../shared/types.js";
 import type { AudioPlayer, PlaybackHandle } from "../audio/index.js";
 import type { ConfigStore } from "../config/store.js";
-import type { HistoryLog } from "./history.js";
+import type { HistoryEntry, HistoryLog } from "./history.js";
 import { voiceLabel } from "./history.js";
 import type { AgentRegistry } from "./registry.js";
 import { UtteranceQueue, toUtterance, type QueueItem } from "./queue.js";
@@ -67,6 +67,13 @@ export class Scheduler {
   private handle: PlaybackHandle | null = null;
   private skipRequested = false;
   private paused = false;
+  /** True while the current utterance is suspended mid-word (SIGSTOP). */
+  private frozen = false;
+  /** Abort for the in-flight synthesis, so skip works before audio exists. */
+  private synthAbort: AbortController | null = null;
+  /** The user lane: replay/preview audio playing outside the agent queue. */
+  private userHandle: PlaybackHandle | null = null;
+  private userPlayback: UserPlayback | null = null;
   private pumping = false;
   private stopped = false;
   private sweepTimer: NodeJS.Timeout | undefined;
@@ -84,13 +91,27 @@ export class Scheduler {
   async stop(): Promise<void> {
     this.stopped = true;
     if (this.sweepTimer) clearInterval(this.sweepTimer);
+    // Mark the in-flight utterance as user-terminated so an aborted synthesis
+    // settles "skipped", not a spurious "failed" in history on every restart.
+    this.skipRequested = true;
+    this.synthAbort?.abort();
+    this.events.emit("release-hold");
+    this.stopUserPlayback();
     this.handle?.stop();
-    this.queue.clear();
+    // Settle everything so wait:"played" callers resolve instead of hanging
+    // and the history records what never got spoken.
+    for (const item of this.queue.clear()) this.settle(item, "dropped", "daemon stopped");
   }
 
   onChange(listener: () => void): () => void {
     this.events.on("change", listener);
     return () => this.events.off("change", listener);
+  }
+
+  /** Fires with the history entry each time a non-ephemeral utterance settles. */
+  onHistory(listener: (entry: HistoryEntry) => void): () => void {
+    this.events.on("history", listener);
+    return () => this.events.off("history", listener);
   }
 
   // --- Public control ------------------------------------------------------
@@ -100,17 +121,28 @@ export class Scheduler {
   }
 
   /**
-   * Pause at the utterance boundary by default: the current line finishes and
-   * the pump halts. Cutting mid-sentence sounds broken, and SIGSTOP has no
-   * Windows equivalent, so boundary gating is both nicer and portable.
+   * Freeze the current utterance mid-word where the platform allows it
+   * (SIGSTOP on the player process); where it does not (Windows), the current
+   * line finishes and the pump halts at the utterance boundary. Either way the
+   * queue holds until resume() and agents keep enqueueing normally.
    */
   pause(): void {
+    if (this.paused) return;
     this.paused = true;
+    this.frozen = this.handle?.pause() ?? false;
     this.emitChange();
   }
 
+  /** Return to the live queue. Cuts short any replay/preview in progress. */
   resume(): void {
+    if (!this.paused) return;
     this.paused = false;
+    this.stopUserPlayback();
+    if (this.frozen) {
+      this.frozen = false;
+      this.handle?.resume();
+    }
+    this.events.emit("release-hold");
     this.emitChange();
     void this.pump();
   }
@@ -119,6 +151,11 @@ export class Scheduler {
     if (!id || this.playing?.id === id) {
       if (!this.playing) return false;
       this.skipRequested = true;
+      // The utterance may still be synthesizing: abort that too, or the skip
+      // would be swallowed and the audio would start seconds later anyway.
+      this.synthAbort?.abort();
+      this.events.emit("release-hold");
+      this.frozen = false;
       this.handle?.stop();
       return true;
     }
@@ -128,10 +165,80 @@ export class Scheduler {
     return true;
   }
 
+  /** Serve a pending item before everything else in the queue. */
+  playNow(id: string): boolean {
+    const promoted = this.queue.promote(id);
+    if (!promoted) return false;
+    this.emitChange();
+    void this.pump();
+    return true;
+  }
+
   clear(profileId?: string): number {
     const removed = this.queue.clear(profileId);
     for (const item of removed) this.settle(item, "skipped");
     return removed.length;
+  }
+
+  /**
+   * The user lane: play a replayed memo or a voice preview.
+   *
+   * Plays immediately when nothing is audibly speaking -- including while
+   * paused, which is the whole point: pause the queue, go back and listen to
+   * an older memo, then resume and the live flow continues. When an agent IS
+   * mid-sentence, the audio slots in directly after it instead of overlapping.
+   */
+  async playUserAudio(input: {
+    label: string;
+    text: string;
+    file: string;
+    volume: number;
+  }): Promise<"playing" | "queued"> {
+    const audiblyBusy = this.playing !== null && this.playing.status === "playing" && !this.frozen;
+
+    if (!audiblyBusy) {
+      this.stopUserPlayback();
+      this.userPlayback = {
+        label: input.label,
+        text: input.text,
+        startedAt: new Date().toISOString(),
+      };
+      const handle = this.deps.player.play(input.file, { volume: input.volume });
+      this.userHandle = handle;
+      this.emitChange();
+      void handle.done.then(() => {
+        if (this.userHandle === handle) {
+          this.userHandle = null;
+          this.userPlayback = null;
+          this.emitChange();
+        }
+      });
+      return "playing";
+    }
+
+    // Mid-sentence: front-of-queue ephemeral item, played right after the
+    // current line through the one lane. Never overlaps.
+    this.queue.updateLimits(this.limits());
+    const result = this.queue.enqueue({
+      profileId: "user",
+      agentLabel: input.label,
+      text: input.text,
+      priority: "urgent",
+      voice: { providerId: "openai", voiceId: "user-audio" },
+      volume: input.volume,
+      ttlMs: 120_000,
+    });
+    if (!result.ok) {
+      throw new VoiceBoxError("invalid_input", "The queue is full; try again in a moment.", {
+        retryable: true,
+      });
+    }
+    result.item.ephemeral = true;
+    result.item.sourceFile = input.file;
+    this.queue.promote(result.item.id);
+    this.emitChange();
+    void this.pump();
+    return "queued";
   }
 
   /** Drop an agent's low-value backlog when its MCP process disconnects. */
@@ -147,8 +254,10 @@ export class Scheduler {
   snapshot(): QueueSnapshot {
     return {
       playing: this.playing ? toUtterance(this.playing) : null,
-      pending: this.queue.list().map(toUtterance),
+      pending: this.queue.listInPlayOrder().map(toUtterance),
       paused: this.paused,
+      frozenMidUtterance: this.frozen,
+      userPlayback: this.userPlayback,
     };
   }
 
@@ -182,7 +291,6 @@ export class Scheduler {
 
     // Fail fast if nothing can synthesize, rather than queueing an utterance
     // that is guaranteed to fail later.
-    this.deps.registry.requireProfile(profile.id);
     const provider = this.deps.synthesizer.providerFor(profile.voice);
     if (!provider.isConfigured()) throw this.deps.synthesizer.notConfiguredError();
 
@@ -227,6 +335,17 @@ export class Scheduler {
 
     if (wait === "played") {
       const finished = await this.waitForTerminal(result.item.id);
+      if (!finished) {
+        // Deadline hit -- still queued, paused, or mid-playback. Report the
+        // truthful in-flight state instead of letting the socket die.
+        return {
+          ...outcome,
+          status: this.playing?.id === result.item.id ? this.playing.status : "queued",
+          queuePosition: this.positionOf(result.item.id),
+          etaSeconds: this.estimateEta(result.item.id),
+          warning: "Still waiting for its turn; playback continues in the background.",
+        };
+      }
       return {
         ...outcome,
         status: finished.status,
@@ -258,6 +377,11 @@ export class Scheduler {
     this.pumping = true;
     try {
       while (!this.paused && !this.stopped) {
+        // The user lane owns the speakers while a replay/preview is sounding.
+        if (this.userHandle) {
+          await this.userHandle.done;
+          continue;
+        }
         this.expireStale();
         const item = this.queue.dequeue();
         if (!item) break;
@@ -272,37 +396,82 @@ export class Scheduler {
 
   private async playItem(item: QueueItem): Promise<void> {
     // Re-check: the agent may have been muted after this was queued.
+    // (User-lane items have no profile and play as-is.)
     const profile = this.deps.registry.getProfile(item.profileId);
-    if (!profile || profile.muted) {
+    if (!item.ephemeral && (!profile || profile.muted)) {
       this.settle(item, "muted");
       return;
     }
 
     this.playing = item;
-    item.status = "synthesizing";
+    this.skipRequested = false;
     item.startedAt = Date.now();
-    this.emitChange();
 
     let file: string;
-    try {
-      const audio = await this.synthesizeWithRetry(item);
-      file = audio.file;
-      this.audioKeys.set(item.id, audio.key);
-    } catch (error) {
-      const mapped = toVoiceBoxError(error);
-      this.deps.logger.warn("synthesis failed", { code: mapped.code, message: mapped.message });
+    if (item.sourceFile !== undefined) {
+      // Replay/preview audio was already resolved -- nothing to synthesize.
+      file = item.sourceFile;
+    } else {
+      item.status = "synthesizing";
+      this.emitChange();
+
+      this.synthAbort = new AbortController();
+      try {
+        const audio = await this.synthesizeWithRetry(item, this.synthAbort.signal);
+        file = audio.file;
+        this.audioKeys.set(item.id, audio.key);
+      } catch (error) {
+        this.playing = null;
+        if (this.skipRequested) {
+          this.settle(item, "skipped");
+          return;
+        }
+        const mapped = toVoiceBoxError(error);
+        this.deps.logger.warn("synthesis failed", { code: mapped.code, message: mapped.message });
+        this.settle(item, "failed", mapped.message);
+        return;
+      } finally {
+        this.synthAbort = null;
+      }
+    }
+
+    // A replay/preview may have grabbed the speakers while we were
+    // synthesizing (there was nothing audible to block it then). Let it finish
+    // before starting this line -- overlapping voices is the cardinal sin.
+    while (this.userHandle) {
+      await this.userHandle.done;
+    }
+
+    // A pause can land while we are synthesizing. There is no audio to freeze
+    // yet, and starting a new line while paused would be plainly wrong, so hold
+    // the fully-prepared utterance until resume (or skip).
+    if (this.paused) {
+      const released = await this.holdWhilePaused();
+      if (!released || this.skipRequested || this.stopped) {
+        this.playing = null;
+        this.settle(item, "skipped");
+        return;
+      }
+    }
+
+    // A skip during synthesis has no handle to stop and (on a cache hit) no
+    // request to abort -- catch it here so the audio never starts.
+    if (this.skipRequested || this.stopped) {
       this.playing = null;
-      this.settle(item, "failed", mapped.message);
+      this.settle(item, "skipped");
       return;
     }
 
     item.status = "playing";
     this.emitChange();
 
-    this.skipRequested = false;
-    this.handle = this.deps.player.play(file, { volume: item.volume });
+    // User-lane volume arrives pre-multiplied by the routes; agent items get
+    // master applied here.
+    const master = item.ephemeral ? 1 : this.deps.store.config.audio.volume;
+    this.handle = this.deps.player.play(file, { volume: item.volume * master });
     const outcome = await this.handle.done;
     this.handle = null;
+    this.frozen = false;
     this.playing = null;
 
     switch (outcome.status) {
@@ -321,19 +490,36 @@ export class Scheduler {
     }
   }
 
-  private async synthesizeWithRetry(item: QueueItem) {
+  private async synthesizeWithRetry(item: QueueItem, signal: AbortSignal) {
     try {
-      return await this.deps.synthesizer.synthesize(item.text, item.voice);
+      return await this.deps.synthesizer.synthesize(item.text, item.voice, signal);
     } catch (error) {
       const mapped = toVoiceBoxError(error);
-      if (!mapped.retryable) throw mapped;
+      if (signal.aborted || !mapped.retryable) throw mapped;
 
       // One retry, honouring Retry-After when the provider supplied it.
       const delayMs = (mapped.retryAfterSeconds ?? 1) * 1000 + Math.floor(Math.random() * 250);
       this.deps.logger.debug("retrying synthesis", { code: mapped.code, delayMs });
       await new Promise((resolve) => setTimeout(resolve, delayMs));
-      return await this.deps.synthesizer.synthesize(item.text, item.voice);
+      return await this.deps.synthesizer.synthesize(item.text, item.voice, signal);
     }
+  }
+
+  /** Resolves true when resume() releases the hold, false on skip/stop. */
+  private holdWhilePaused(): Promise<boolean> {
+    if (!this.paused) return Promise.resolve(true);
+    if (this.skipRequested || this.stopped) return Promise.resolve(false);
+    return new Promise((resolve) => {
+      this.events.once("release-hold", () => resolve(!this.skipRequested && !this.stopped));
+    });
+  }
+
+  private stopUserPlayback(): void {
+    if (!this.userHandle) return;
+    const handle = this.userHandle;
+    this.userHandle = null;
+    this.userPlayback = null;
+    handle.stop();
   }
 
   // --- Helpers -------------------------------------------------------------
@@ -369,17 +555,23 @@ export class Scheduler {
 
     const audioKey = this.audioKeys.get(item.id);
     this.audioKeys.delete(item.id);
-    this.deps.history.append({
-      id: item.id,
-      at: new Date(item.finishedAt).toISOString(),
-      profileId: item.profileId,
-      agentLabel: item.agentLabel,
-      text: item.text,
-      voice: voiceLabel(item.voice),
-      status,
-      ...(audioKey !== undefined ? { audioKey } : {}),
-      ...(detail !== undefined ? { detail } : {}),
-    });
+    // Replays and previews are not logged: the original entry already records
+    // what was said, and duplicates would clutter every agent's backlog.
+    if (!item.ephemeral) {
+      const entry: HistoryEntry = {
+        id: item.id,
+        at: new Date(item.finishedAt).toISOString(),
+        profileId: item.profileId,
+        agentLabel: item.agentLabel,
+        text: item.text,
+        voice: voiceLabel(item.voice),
+        status,
+        ...(audioKey !== undefined ? { audioKey } : {}),
+        ...(detail !== undefined ? { detail } : {}),
+      };
+      this.deps.history.append(entry);
+      this.events.emit("history", entry);
+    }
 
     this.events.emit(`settled:${item.id}`, item);
     this.events.emit("capacity", item.profileId);
@@ -391,13 +583,13 @@ export class Scheduler {
   }
 
   private positionOf(id: string): number {
-    const index = this.queue.list().findIndex((item) => item.id === id);
+    const index = this.queue.listInPlayOrder().findIndex((item) => item.id === id);
     return index === -1 ? 0 : index + 1;
   }
 
   private estimateEta(id: string): number {
     let seconds = this.playing ? this.durationOf(this.playing) / 2 : 0;
-    for (const item of this.queue.list()) {
+    for (const item of this.queue.listInPlayOrder()) {
       if (item.id === id) break;
       seconds += this.durationOf(item);
     }
@@ -408,12 +600,27 @@ export class Scheduler {
     return item.text.length / CHARS_PER_SECOND;
   }
 
-  private waitForTerminal(id: string): Promise<QueueItem> {
+  /**
+   * Wait for the utterance to reach a terminal state, or null on deadline.
+   * The deadline sits below the HTTP request timeout: without it, a long queue
+   * (or a pause) kills the socket and the client misdiagnoses a dead daemon.
+   */
+  private waitForTerminal(id: string, deadlineMs = 25_000): Promise<QueueItem | null> {
     const already = this.settled.get(id);
     if (already && isTerminal(already.status)) return Promise.resolve(already);
 
     return new Promise((resolve) => {
-      this.events.once(`settled:${id}`, (item: QueueItem) => resolve(item));
+      const event = `settled:${id}`;
+      const timer = setTimeout(() => {
+        this.events.off(event, onSettle);
+        resolve(null);
+      }, deadlineMs);
+      timer.unref();
+      const onSettle = (item: QueueItem) => {
+        clearTimeout(timer);
+        resolve(item);
+      };
+      this.events.once(event, onSettle);
     });
   }
 

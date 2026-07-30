@@ -36,6 +36,7 @@ Commands
   speak <text>           Queue something to say, for testing
   keys set <provider>    Store an API key, read from stdin so it stays out of history
   keys clear <provider>  Remove a stored API key
+  token --rotate         Replace the panel auth token (invalidates open tabs)
   doctor [--selftest]    Diagnose the installation
   help                   Show this message
 
@@ -99,6 +100,9 @@ async function main(argv: string[]): Promise<number> {
     case "keys":
       return keysCommand(rest);
 
+    case "token":
+      return tokenCommand(rest);
+
     case "doctor":
       return runDoctor({ selftest: rest.includes("--selftest") });
 
@@ -124,14 +128,16 @@ const quietLogger = () => createLogger({ scope: "cli", level: "warn" });
 async function startCommand(openPanel: boolean): Promise<number> {
   const { state } = await ensureDaemon(quietLogger());
   const url = `http://${state.host}:${state.port}`;
+  // The token rides in the fragment, never the query string, so it stays out
+  // of server logs and Referer headers. The page swaps it for a cookie and
+  // wipes the fragment immediately. Always PRINT the link: a browser without
+  // the cookie cannot authorize from the bare URL, and telling the user to
+  // "open the panel" without handing them this link is a dead end.
+  const panelLink = `${url}/#t=${encodeURIComponent(state.token)}`;
   console.log(`Voice Box running at ${url} (pid ${state.pid})`);
+  console.log(`Panel (this link signs the browser in):\n  ${panelLink}`);
 
-  if (openPanel) {
-    // The token rides in the fragment, never the query string, so it stays out
-    // of server logs and Referer headers. The page swaps it for a cookie and
-    // wipes the fragment immediately.
-    openInBrowser(`${url}/#t=${encodeURIComponent(state.token)}`);
-  }
+  if (openPanel) openInBrowser(panelLink);
   return statusCommand();
 }
 
@@ -171,6 +177,10 @@ async function stopCommand(): Promise<number> {
   for (let i = 0; i < 30; i++) {
     if (!isProcessAlive(state.pid)) break;
     await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  if (isProcessAlive(state.pid)) {
+    console.error(`Daemon (pid ${state.pid}) did not stop within 3s. Kill it manually and retry.`);
+    return 1;
   }
   console.log(`Stopped daemon (pid ${state.pid}).`);
   return 0;
@@ -307,6 +317,25 @@ async function keysCommand(args: string[]): Promise<number> {
   console.log("ok. Saved to ~/.voice-box/secrets.json (0600).");
   console.log("Restart the daemon to pick it up: voice-box restart");
   return 0;
+}
+
+async function tokenCommand(args: string[]): Promise<number> {
+  if (!args.includes("--rotate")) {
+    console.log("The token lives in ~/.voice-box/token (0600).");
+    console.log("Rotate it with: voice-box token --rotate");
+    return 0;
+  }
+  const { rotateToken } = await import("./daemon/lifecycle.js");
+  await rotateToken(getPaths());
+  console.log("Token rotated. Restarting the daemon so it takes effect...");
+  const stopped = await stopCommand();
+  if (stopped !== 0) {
+    // Do not pretend rotation is effective: the running daemon still holds
+    // (and accepts) the old token until it actually restarts.
+    console.error("The old token remains ACTIVE until the daemon restarts.");
+    return 1;
+  }
+  return startCommand(false);
 }
 
 function readStdinLine(): Promise<string> {
