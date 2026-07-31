@@ -2,8 +2,10 @@
 //
 // Auth: the page arrives with the token in the URL fragment, trades it for an
 // HttpOnly cookie, and wipes the fragment. The token is also kept in
-// sessionStorage so a 401 (rotated token aside, e.g. an expired cookie) can be
-// healed with one re-auth instead of a dead panel.
+// localStorage so an expired cookie (or a pinned dock web app months later)
+// heals with one silent re-auth instead of a dead panel. localStorage is fine
+// here: it is same-origin on 127.0.0.1, holding exactly the secret this page
+// is trusted with anyway.
 
 const API = "/v1";
 const TOKEN_KEY = "voicebox-token";
@@ -19,7 +21,7 @@ export class ApiError extends Error {
 
 export function rememberToken(token) {
   try {
-    sessionStorage.setItem(TOKEN_KEY, token);
+    localStorage.setItem(TOKEN_KEY, token);
   } catch {
     /* storage may be unavailable; re-auth just won't work */
   }
@@ -27,7 +29,7 @@ export function rememberToken(token) {
 
 function storedToken() {
   try {
-    return sessionStorage.getItem(TOKEN_KEY);
+    return localStorage.getItem(TOKEN_KEY);
   } catch {
     return null;
   }

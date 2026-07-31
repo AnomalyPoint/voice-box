@@ -456,17 +456,32 @@ function onClick(event) {
 
 // --- boot -------------------------------------------------------------------
 
-async function boot() {
-  // Trade the fragment token for the auth cookie, then wipe it from the URL
-  // (and keep it for self-healing after an expired cookie).
+/**
+ * Trade a fragment token for the auth cookie, then wipe it from the URL.
+ * Remember only a token that works: a stale bookmarked link must not clobber
+ * a good remembered token.
+ */
+async function adoptFragmentToken() {
   const match = /[#&]t=([^&]+)/.exec(location.hash);
-  if (match) {
-    const token = decodeURIComponent(match[1]);
-    // Remember only a token that works: a stale bookmarked link must not
-    // clobber a good remembered token.
-    if (await authenticate(token)) rememberToken(token);
-    history.replaceState(null, "", location.pathname);
-  }
+  if (!match) return false;
+  const token = decodeURIComponent(match[1]);
+  const ok = await authenticate(token);
+  if (ok) rememberToken(token);
+  history.replaceState(null, "", location.pathname);
+  return ok;
+}
+
+async function boot() {
+  await adoptFragmentToken();
+
+  // Opening the sign-in link into an ALREADY-OPEN panel tab only changes the
+  // fragment -- no page load, so boot() never reruns. Catch it here and start
+  // over signed in, or the banner sits there looking broken.
+  window.addEventListener("hashchange", () => {
+    void adoptFragmentToken().then((ok) => {
+      if (ok) location.reload();
+    });
+  });
 
   document.addEventListener("click", onClick);
   document.addEventListener("change", onChange);
