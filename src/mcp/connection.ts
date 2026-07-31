@@ -1,3 +1,4 @@
+import { isVoiceBoxError } from "../shared/errors.js";
 import type { Logger } from "../shared/log.js";
 import type {
   RegisterSessionResponse,
@@ -5,6 +6,7 @@ import type {
   SpeakResponse,
   StateResponse,
 } from "../shared/protocol.js";
+import type { DaemonState } from "../shared/protocol.js";
 import type { VoiceSelection } from "../shared/types.js";
 import { DaemonClient, deriveIdentity } from "./daemonClient.js";
 import { ensureDaemon } from "./ensureDaemon.js";
@@ -12,6 +14,26 @@ import { ensureDaemon } from "./ensureDaemon.js";
 export interface ClientInfo {
   name: string;
   version?: string;
+}
+
+/** Seam for tests; production uses the real daemon discovery and client. */
+export interface ConnectionDeps {
+  ensureDaemon: typeof ensureDaemon;
+  createClient: (state: DaemonState) => DaemonClient;
+}
+
+/**
+ * True when the daemon no longer knows the session we sent -- it restarted or
+ * reaped us. This is the one failure re-registering is guaranteed to fix.
+ *
+ * Daemons that predate the dedicated code report it as invalid_input with this
+ * exact message, and ensureDaemon reuses any healthy daemon regardless of
+ * version, so the message fallback is a normal path, not a paranoid one.
+ */
+export function isUnknownSessionError(error: unknown): boolean {
+  if (!isVoiceBoxError(error)) return false;
+  if (error.code === "unknown_session") return true;
+  return error.code === "invalid_input" && error.message.startsWith("Unknown session.");
 }
 
 /**
@@ -30,6 +52,10 @@ export class AgentConnection {
   constructor(
     private readonly getClientInfo: () => ClientInfo | undefined,
     private readonly logger: Logger,
+    private readonly deps: ConnectionDeps = {
+      ensureDaemon,
+      createClient: (state) => new DaemonClient(state),
+    },
   ) {}
 
   /** Idempotent: concurrent callers share one registration, never two. */
@@ -38,8 +64,8 @@ export class AgentConnection {
     if (this.pending) return this.pending;
 
     this.pending = (async () => {
-      const { state } = await ensureDaemon(this.logger);
-      this.client = new DaemonClient(state);
+      const { state } = await this.deps.ensureDaemon(this.logger);
+      this.client = this.deps.createClient(state);
 
       const info = this.getClientInfo();
       const identity = deriveIdentity(info?.name ?? "unknown", info?.version);
@@ -61,6 +87,41 @@ export class AgentConnection {
   }
 
   /**
+   * Drop the cached session, but only if it is still the one that failed.
+   * A stale failure must never clobber a session someone else just registered.
+   */
+  private invalidateSession(failed: RegisterSessionResponse): void {
+    if (this.session?.sessionId === failed.sessionId) this.session = undefined;
+  }
+
+  /**
+   * Run a session-scoped request, re-registering and retrying exactly once if
+   * the daemon has forgotten us (it restarted; sessions live in memory).
+   * Without this, one `voice-box restart` breaks every connected agent's
+   * `speak` for the life of its MCP process.
+   */
+  private async withSession<T>(
+    run: (client: DaemonClient, session: RegisterSessionResponse) => Promise<T>,
+  ): Promise<{ result: T; session: RegisterSessionResponse }> {
+    const session = await this.ensureSession();
+    try {
+      return { result: await run(this.client!, session), session };
+    } catch (error) {
+      if (!isUnknownSessionError(error)) throw error;
+      this.invalidateSession(session);
+      const fresh = await this.ensureSession();
+      try {
+        return { result: await run(this.client!, fresh), session: fresh };
+      } catch (retryError) {
+        // Restarted again mid-retry. Give up for this call, but clear the
+        // cache so the next tool call starts from a clean registration.
+        if (isUnknownSessionError(retryError)) this.invalidateSession(fresh);
+        throw retryError;
+      }
+    }
+  }
+
+  /**
    * Consume the "this is a brand new agent" flag exactly once, so the agent
    * announces its name and voice on first contact and never repeats it.
    */
@@ -75,8 +136,9 @@ export class AgentConnection {
     session: RegisterSessionResponse;
     firstSeen: boolean;
   }> {
-    const session = await this.ensureSession();
-    const response = await this.client!.speak({ ...request, sessionId: session.sessionId });
+    const { result: response, session } = await this.withSession((client, current) =>
+      client.speak({ ...request, sessionId: current.sessionId }),
+    );
     return { response, session, firstSeen: this.takeFirstSeen(session) };
   }
 
@@ -84,12 +146,13 @@ export class AgentConnection {
     name: string,
     voice?: VoiceSelection,
   ): Promise<{ label: string; voice: string; voiceLocked: boolean; panelUrl: string }> {
-    const session = await this.ensureSession();
-    const result = await this.client!.registerAgent({
-      sessionId: session.sessionId,
-      name,
-      ...(voice !== undefined ? { voice } : {}),
-    });
+    const { result, session } = await this.withSession((client, current) =>
+      client.registerAgent({
+        sessionId: current.sessionId,
+        name,
+        ...(voice !== undefined ? { voice } : {}),
+      }),
+    );
     // Keep the cached profile in step so later calls report the new name.
     session.profile = result.profile;
     this.takeFirstSeen(session);

@@ -66,6 +66,17 @@ test("a second concurrent agent in one project gets its own slot and voice", asy
   });
 });
 
+test("a forgotten session fails with a code the client can act on", async () => {
+  await withRegistry(async (registry) => {
+    // Clients key their re-register-and-retry recovery on this exact contract.
+    assert.throws(() => registry.requireSession("gone-after-restart"), {
+      name: "VoiceBoxError",
+      code: "unknown_session",
+      retryable: true,
+    });
+  });
+});
+
 test("a crashed agent's slot is reclaimed rather than sprawling", async () => {
   await withRegistry(async (registry) => {
     // Registered and then "crashed": no endSession is ever sent.

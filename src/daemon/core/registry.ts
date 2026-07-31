@@ -124,8 +124,11 @@ export class AgentRegistry {
   requireSession(sessionId: string): AgentSession {
     const session = this.sessions.get(sessionId);
     if (!session) {
-      throw new VoiceBoxError("invalid_input", "Unknown session. Reconnect and try again.", {
+      // Keep this message in sync with isUnknownSessionError (mcp/connection.ts):
+      // clients match on it when a daemon predates the unknown_session code.
+      throw new VoiceBoxError("unknown_session", "Unknown session. Reconnect and try again.", {
         hint: "The daemon may have restarted since this agent registered.",
+        retryable: true,
       });
     }
     return session;

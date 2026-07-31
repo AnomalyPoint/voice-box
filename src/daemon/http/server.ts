@@ -237,6 +237,7 @@ export function sendJson(res: ServerResponse, payload: unknown, status = 200): v
 const STATUS_BY_CODE: Partial<Record<string, number>> = {
   not_configured: 409,
   invalid_input: 400,
+  unknown_session: 410,
   text_too_long: 413,
   provider_auth: 502,
   provider_rate_limit: 429,

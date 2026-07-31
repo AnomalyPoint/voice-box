@@ -5,6 +5,7 @@
 export type VoiceBoxErrorCode =
   | "not_configured"
   | "invalid_input"
+  | "unknown_session"
   | "text_too_long"
   | "provider_auth"
   | "provider_rate_limit"
