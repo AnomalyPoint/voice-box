@@ -1,6 +1,6 @@
 {
   "name": "@anomalypoint/voice-box",
-  "version": "3.0.2",
+  "version": "3.1.0",
   "description": "Local voice control panel for AI agents. Give each agent its own voice, queue and manage what they say, with OpenAI or ElevenLabs TTS.",
   "type": "module",
   "main": "dist/cli.js",
@@ -11,6 +11,7 @@
   "files": [
     "dist/**/*",
     "README.md",
+    "CHANGELOG.md",
     "LICENSE"
   ],
   "scripts": {
@@ -21,7 +22,8 @@
     "doctor": "node dist/cli.js doctor",
     "test": "node --import tsx --test \"src/**/*.test.ts\"",
     "typecheck": "tsc --noEmit",
-    "prepare": "npm run build"
+    "prepare": "npm run build",
+    "prepublishOnly": "npm run typecheck && npm test"
   },
   "keywords": [
     "mcp",

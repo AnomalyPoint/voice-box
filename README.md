@@ -36,7 +36,12 @@ fairly, and you stay in control of who sounds like what.
 - **An audio player** — already present on virtually every system:
   - macOS: `afplay` (built in, nothing to do)
   - Windows: PowerShell (built in, nothing to do)
-  - Linux: one of `ffplay`, `mpg123`, `mpv`, or `cvlc` — e.g. `sudo apt install mpg123`
+  - Linux: one of `mpv`, `ffplay`, `mpg123`, or `cvlc` — e.g. `sudo apt install mpv`
+- **Recommended: `mpv`** (`brew install mpv` / `apt install mpv`). Voice Box drives it
+  over its control socket, which is what enables **instant mid-word pause** and **live
+  volume changes** on audio that is already playing. Without mpv everything still works —
+  pause just waits for the current sentence to finish, and volume applies from the next
+  message. If mpv is installed, Voice Box picks it automatically.
 - **An API key** for [OpenAI](https://platform.openai.com/api-keys) or
   [ElevenLabs](https://elevenlabs.io/app/settings/api-keys)
 
@@ -52,8 +57,8 @@ Run `npx @anomalypoint/voice-box doctor` to check all of this at once.
 npx @anomalypoint/voice-box
 ```
 
-**2. Add an API key** in the **SETUP** tab. The key is verified against the provider
-before it is saved, so a typo fails immediately rather than mysteriously later.
+**2. Add an API key** in Settings (the gear button). The key is verified against the
+provider before it is saved, so a typo fails immediately rather than mysteriously later.
 
 **3. Point your MCP client at Voice Box.**
 
@@ -96,21 +101,32 @@ voice, and tells you where to change it.
 
 `npx @anomalypoint/voice-box` opens it at `http://127.0.0.1:4517`.
 
-One column per agent — its queue, its full spoken history, and its controls (rename,
-voice, preview, volume, mute) all in one place. The transport bar on top always shows
-what is playing, with pause/resume, skip, and clear-queue. Queued messages carry
-**#1/#2/#3 badges in true play order** (the order the scheduler will actually serve
-them, across agents and priorities), with **PLAY NOW** and **REMOVE** on each. Every
-history entry has **REPLAY**; replays go through the same single playback lane, so
-they never talk over an agent. On narrow windows the columns collapse to one, with
-agent chips to flip between them. Settings (provider keys, audio backend, master
-volume) live in an overlay.
+The panel is a console: one channel strip per agent, each with a little CRT screen
+showing that agent's **face** — generated from its identity, glowing in its channel
+color. Faces blink, make eye contact with your cursor, animate while their agent is
+speaking, and fall asleep when it goes offline. A green LED means the agent is
+connected; a hollow red one means offline (the strip stays fully readable either way).
 
-**Pause is a real pause.** On macOS and Linux the player process is frozen mid-word
-(SIGSTOP) and resumes exactly where it stopped; on Windows the current line finishes
-and the queue holds. While paused, agents keep queueing and you can replay older
-messages — they play immediately, and resume returns to the live queue where it
-left off.
+Each strip carries the agent's queue, its full spoken history, and its controls
+(rename, voice, preview, volume fader, mute, and its own **PAUSE**). The transport bar
+on top always shows what is playing, with pause/resume, skip, and clear-queue. Queued
+messages carry **#1/#2/#3 badges in true play order** (the order the scheduler will
+actually serve them, across agents and priorities), with **PLAY NOW** and **REMOVE**
+on each. Every history entry has **REPLAY**; replays go through the same single
+playback lane, so they never talk over an agent. On narrow windows the strips collapse
+to one, with agent chips to flip between them. Settings (provider keys, audio backend,
+master volume) live in an overlay.
+
+**Pause each agent, or everything.** Every strip's own PAUSE lets that agent finish
+its sentence, then holds its queue while the other agents keep talking — nothing held
+this way ever expires. The transport PAUSE stops the whole lane: instantly mid-word
+when mpv is driving playback (and it resumes exactly where it stopped), or at the end
+of the current sentence on the built-in players. While paused, agents keep queueing
+and you can replay older messages — they play immediately, and resume returns to the
+live queue where it left off. Volume changes reach audio that is **already playing**
+when mpv is installed; otherwise they apply from the next message (the fader tells you
+which, LIVE or NEXT). A watchdog recovers playback automatically if a player process
+ever hangs, so the queue can never silently wedge.
 
 ---
 
@@ -245,13 +261,18 @@ config to pin an agent's name.
 **No sound.** Run `voice-box doctor --selftest`. On Linux, install one of the players
 listed under Requirements.
 
-**"No text-to-speech provider is configured."** Add a key in the SETUP tab, or set
+**"No text-to-speech provider is configured."** Add a key in Settings, or set
 `OPENAI_API_KEY` before starting the daemon.
 
 **The daemon will not start.** Run `voice-box daemon` in a terminal to see the error
 directly, or `voice-box logs`.
 
-**A stale agent is listed.** Use the ✕ button in CHANNELS to forget it.
+**A stale agent is listed.** Use the FORGET button on its strip (shown once it is
+offline).
+
+**Pause doesn't stop mid-word.** That needs mpv (`brew install mpv`), then
+`voice-box restart`. Without it, pause takes effect at the end of the current
+sentence.
 
 **Port 4517 is taken.** Voice Box tries 4517–4527 automatically. Pin one with
 `daemon.port` in `config.json`.
