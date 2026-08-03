@@ -9,16 +9,19 @@ import type { AgentProfile, AgentSession, VoiceSelection } from "../../shared/ty
 import type { ConfigStore } from "../config/store.js";
 import type { ProviderRegistry } from "../providers/registry.js";
 
-/** Distinct swatches so the panel can tell agents apart at a glance. */
+/**
+ * Distinct swatches so the panel can tell agents apart at a glance.
+ * Phosphor-leaning hues chosen to glow well on the console's CRT screens.
+ */
 const COLORS = [
-  "#6b7fd7",
-  "#d77b6b",
-  "#6bd79c",
-  "#d7c96b",
-  "#a86bd7",
-  "#6bc7d7",
-  "#d76ba8",
-  "#8fd76b",
+  "#3ddc84",
+  "#39d0d8",
+  "#ffb454",
+  "#8bd450",
+  "#5ab0ff",
+  "#ffd166",
+  "#ff8f5c",
+  "#4de0b3",
 ];
 
 export interface SessionBinding {

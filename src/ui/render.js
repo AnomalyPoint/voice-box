@@ -4,6 +4,8 @@
 // drags, and rename inputs survive re-renders. Message cards are cheap and
 // rebuilt wholesale; expansion state lives in state.expanded and is re-applied.
 
+import { mountFace } from "/avatar.js";
+
 const $ = (selector, root = document) => root.querySelector(selector);
 
 const tplColumn = $("#tpl-column");
@@ -58,9 +60,11 @@ export function renderTransport(state) {
   document.body.classList.toggle("playing", !queue.paused && !user && Boolean(playing));
 
   const word = $("#stateWord");
-  if (queue.paused && user) word.textContent = "REPLAY";
-  else if (queue.paused) word.textContent = "PAUSED";
-  else if (user) word.textContent = "REPLAY";
+  if (user) word.textContent = "REPLAY";
+  else if (queue.paused && playing?.status === "playing" && !queue.frozenMidUtterance) {
+    // Boundary pause: the current sentence is finishing before the hold lands.
+    word.textContent = "PAUSING";
+  } else if (queue.paused) word.textContent = "PAUSED";
   else if (playing?.status === "synthesizing") word.textContent = "PREPARING";
   else if (playing) word.textContent = "PLAYING";
   else word.textContent = "IDLE";
@@ -113,10 +117,11 @@ export function renderProgress(state) {
     return;
   }
   const total = estimateSeconds(playing.text);
-  // Freeze the clock at the moment of pause; snapping to 0 would lie.
+  // Freeze the clock only when the AUDIO is frozen. During a boundary pause
+  // the sentence is still sounding, so the clock must keep moving with it.
   const raw = (Date.now() - Date.parse(playing.startedAt)) / 1000;
   let elapsed;
-  if (state.queue.paused) {
+  if (state.queue.paused && state.queue.frozenMidUtterance) {
     if (state._frozenElapsed === undefined) state._frozenElapsed = raw;
     elapsed = state._frozenElapsed;
   } else {
@@ -143,7 +148,6 @@ export function renderChips(state) {
     chip.dataset.profileId = profile.id;
     chip.classList.toggle("active", profile.id === state.selectedAgent);
     chip.classList.toggle("offline", !isLive(state, profile.id));
-    $(".cdot", chip).style.color = profile.color;
     $(".chip-name", chip).textContent = profile.label;
     const pendingCount = state.queue.pending.filter(
       (item) => item.profileId === profile.id,
@@ -213,14 +217,20 @@ function updateColumn(el, profile, state) {
   const live = isLive(state, profile.id);
   const playing = state.queue.playing;
   const isSpeaking = playing?.profileId === profile.id;
+  const held = state.queue.pausedProfiles?.includes(profile.id) ?? false;
+  const frozen = isSpeaking && state.queue.frozenMidUtterance;
+  const audible = isSpeaking && playing.status === "playing" && !frozen;
 
+  el.style.setProperty("--agent", profile.color);
   el.classList.toggle("offline-col", !live);
   el.classList.toggle("muted-col", profile.muted);
   el.classList.toggle("selected-col", profile.id === state.selectedAgent);
+  el.classList.toggle("speaking-col", isSpeaking);
+  el.classList.toggle("frozen-col", frozen);
+  el.classList.toggle("held-col", held);
 
   const dot = $(".agent-dot", el);
   dot.className = `agent-dot ${live ? "live" : "offline"}`;
-  dot.style.color = profile.color;
 
   if (!el.classList.contains("editing")) {
     $(".col-name", el).textContent = profile.label;
@@ -228,9 +238,23 @@ function updateColumn(el, profile, state) {
 
   const status = $(".col-status", el);
   if (!live) status.textContent = `OFFLINE · ${ago(profile.lastSeen).toUpperCase()}`;
-  else if (profile.muted) status.textContent = "MUTED";
-  else if (isSpeaking) status.textContent = "SPEAKING";
-  else status.textContent = "";
+  else if (isSpeaking) status.textContent = "ONLINE · SPEAKING";
+  else if (profile.muted) status.textContent = "ONLINE · MUTED";
+  else if (held) status.textContent = "ONLINE · PAUSED";
+  else status.textContent = "ONLINE";
+
+  // The CRT face: standby asleep when offline, animated mouth while audible,
+  // frozen mid-frame when the audio is frozen.
+  const mount = $(".face-mount", el);
+  mountFace(mount, profile.id);
+  mount.dataset.faceMode = !live
+    ? "standby"
+    : audible && !state.queue.paused
+      ? "speaking"
+      : frozen
+        ? "paused"
+        : "idle";
+  $(".crt-standby", el).hidden = live;
 
   $(".forget-btn", el).hidden = live;
   const path = $(".col-path", el);
@@ -249,6 +273,29 @@ function updateColumn(el, profile, state) {
 
   const volume = $(".col-volume input", el);
   if (document.activeElement !== volume) volume.value = String(Math.round(profile.volume * 100));
+  $(".vol-read", el).textContent = `${Math.round(profile.volume * 100)}%`;
+  const volLive = $(".vol-live", el);
+  const liveVolume = state.audioBackend?.supportsLiveVolume ?? false;
+  volLive.textContent = liveVolume ? "LIVE" : "NEXT";
+  volLive.classList.toggle("next", !liveVolume);
+  volLive.title = liveVolume
+    ? "Volume changes apply to audio that is already playing"
+    : "Applies from the next message — install mpv for live volume";
+
+  // Per-agent pause: finish the current sentence, then hold this queue while
+  // other agents keep playing.
+  $(".hold-lbl", el).textContent = held ? "RESUME" : "PAUSE";
+  $(".hold-icon", el).firstElementChild?.setAttribute("href", held ? "#i-play" : "#i-pause");
+  $(".hold-btn", el).title = held
+    ? "Let this agent's queue play again"
+    : "Finish the current sentence, then hold this agent's queue";
+
+  const heldStrip = $(".held-strip", el);
+  heldStrip.hidden = !held || !live;
+  heldStrip.textContent =
+    held && isSpeaking
+      ? "FINISHING SENTENCE, THEN HOLDING…"
+      : "QUEUE HELD — OTHER AGENTS KEEP PLAYING";
 
   // Queue section: the playing card (if this agent is speaking) plus its
   // pending items, each stamped with its global play position.
@@ -259,12 +306,17 @@ function updateColumn(el, profile, state) {
   if (isSpeaking) {
     const card = tplPlayingCard.content.firstElementChild.cloneNode(true);
     card.dataset.id = playing.id;
-    if (playing.status === "synthesizing") {
-      $(".badge-word", card).textContent = "PREPARING";
-    } else if (state.queue.paused) {
-      $(".badge-word", card).textContent = state.queue.frozenMidUtterance
+    const badgeWord = $(".badge-word", card);
+    // Paused wins over "preparing": a pause that lands during synthesis used
+    // to show PREPARING forever, which read as a stuck daemon.
+    if (state.queue.paused) {
+      badgeWord.textContent = frozen
         ? "PAUSED MID-WORD"
-        : "PAUSED";
+        : playing.status === "playing"
+          ? "FINISHING, THEN PAUSING"
+          : "PAUSED";
+    } else if (playing.status === "synthesizing") {
+      badgeWord.textContent = "PREPARING";
     }
     setCardText(card, playing.text, state);
     queueStack.append(card);
@@ -274,8 +326,14 @@ function updateColumn(el, profile, state) {
     if (item.profileId !== profile.id) return;
     const card = tplQueueCard.content.firstElementChild.cloneNode(true);
     card.dataset.id = item.id;
+    card.classList.toggle("held-msg", held);
     const badge = $(".order-badge", card);
-    badge.textContent = `QUEUED #${index + 1} · ~${formatClock(estimateSeconds(item.text))}`;
+    if (held) {
+      badge.classList.add("held");
+      badge.textContent = `HELD · ~${formatClock(estimateSeconds(item.text))}`;
+    } else {
+      badge.textContent = `QUEUED #${index + 1} · ~${formatClock(estimateSeconds(item.text))}`;
+    }
     if (item.priority !== "normal") badge.textContent += ` · ${item.priority.toUpperCase()}`;
     setCardText(card, item.text, state);
     queueStack.append(card);
@@ -371,14 +429,21 @@ export function renderSettings(state) {
   const backendSelect = $("#backendSelect");
   if (document.activeElement !== backendSelect && state.audio) {
     backendSelect.innerHTML = "";
+    // "auto" is the default config value and, since mpv became the preferred
+    // pick, showing the first list entry instead would routinely lie about
+    // which player is actually running.
+    const auto = document.createElement("option");
+    auto.value = "auto";
+    auto.textContent = `Auto — currently ${state.audio.selected?.label ?? "detecting"}`;
+    backendSelect.append(auto);
     for (const entry of state.audio.available) {
       const option = document.createElement("option");
       option.value = entry.id;
       option.textContent = entry.label;
       backendSelect.append(option);
     }
-    const selectedId = state.config?.audio.backend ?? state.audio.selected?.id;
-    if (selectedId && [...backendSelect.options].some((option) => option.value === selectedId)) {
+    const selectedId = state.config?.audio.backend ?? "auto";
+    if ([...backendSelect.options].some((option) => option.value === selectedId)) {
       backendSelect.value = selectedId;
     }
   }
@@ -388,12 +453,24 @@ export function renderSettings(state) {
   if (document.activeElement !== master) master.value = String(masterValue);
   $("#masterVolumeValue").textContent = `${masterValue}%`;
 
-  $("#audioNote").textContent =
-    state.audio && state.audio.missing.length > 0
-      ? `Switching players needs a daemon restart (voice-box restart). Not installed: ${state.audio.missing
-          .map((entry) => entry.id ?? entry)
-          .join(", ")}.`
-      : "Switching players needs a daemon restart (voice-box restart).";
+  const note = $("#audioNote");
+  note.innerHTML = "";
+  if (state.audioBackend?.supportsHardPause) {
+    const good = document.createElement("span");
+    good.className = "good";
+    good.textContent = "mpv is driving playback: pause is instant (even mid-word) and volume changes apply to audio that is already playing. ";
+    note.append(good);
+  } else {
+    note.append(
+      "Instant pause and live volume need mpv (brew install mpv | apt install mpv) — until then, pause finishes the current sentence and volume applies from the next message. ",
+    );
+  }
+  note.append("Switching players needs a daemon restart (voice-box restart).");
+  if (state.audio && state.audio.missing.length > 0) {
+    note.append(
+      ` Not installed: ${state.audio.missing.map((entry) => entry.id ?? entry).join(", ")}.`,
+    );
+  }
 
   if (state.daemon) {
     $("#daemonInfo").textContent =

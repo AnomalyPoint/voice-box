@@ -12,7 +12,14 @@ const $ = (selector, root = document) => root.querySelector(selector);
 const state = {
   profiles: [],
   sessions: [],
-  queue: { playing: null, pending: [], paused: false, frozenMidUtterance: false, userPlayback: null },
+  queue: {
+    playing: null,
+    pending: [],
+    paused: false,
+    frozenMidUtterance: false,
+    pausedProfiles: [],
+    userPlayback: null,
+  },
   history: [],
   voices: {},
   providers: [],
@@ -239,10 +246,29 @@ const actions = {
   preview: async (element) => {
     const profile = profileOf(element);
     if (!profile) return;
-    const response = await api("POST", "/preview", { voice: profile.voice });
+    const response = await api("POST", "/preview", {
+      voice: profile.voice,
+      profileId: profile.id,
+    });
     if (response.status === "queued") {
       toast("Preview queued — plays right after the current message.");
     }
+  },
+
+  // Per-agent pause: the daemon lets the current sentence finish, then holds
+  // this agent's queue while everyone else keeps playing.
+  hold: async (element) => {
+    const profile = profileOf(element);
+    if (!profile) return;
+    const held = state.queue.pausedProfiles?.includes(profile.id);
+    const response = await api("POST", "/queue/commands", {
+      action: held ? "resume" : "pause",
+      profileId: profile.id,
+    });
+    if (Array.isArray(response.pausedProfiles)) {
+      state.queue.pausedProfiles = response.pausedProfiles;
+    }
+    renderAll(state);
   },
 
   mute: async (element) => {
@@ -406,6 +432,9 @@ function onInput(event) {
     const profile = profileOf(event.target);
     if (!profile) return;
     const volume = Number(event.target.value) / 100;
+    // The readout tracks the drag instantly; the PATCH is debounced.
+    const read = event.target.closest(".col-volume")?.querySelector(".vol-read");
+    if (read) read.textContent = `${event.target.value}%`;
     debounce(`volume:${profile.id}`, () => {
       void guarded(async () => {
         const response = await api("PATCH", `/agents/${profile.id}`, { volume });

@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Voice Box</title>
   <link rel="stylesheet" href="/style.css" />
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='4' fill='%23a78bfa'/%3E%3Cpath stroke='%23150d2b' stroke-width='1.8' stroke-linecap='round' fill='none' d='M4 6.5v3M6 4.5v7M8 2.5v11M10 4.5v7M12 6.5v3'/%3E%3C/svg%3E" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%23161618'/%3E%3Cpath stroke='%23ffb454' stroke-width='1.8' stroke-linecap='round' fill='none' d='M4 6.5v3M6 4.5v7M8 2.5v11M10 4.5v7M12 6.5v3'/%3E%3C/svg%3E" />
   <script type="module" src="/app.js"></script>
 </head>
 <body>
@@ -126,14 +126,20 @@
     <div class="col-head">
       <div class="col-title">
         <span class="agent-dot"></span>
-        <span class="col-name"></span>
-        <button class="icon-btn tiny rename-btn" data-action="rename" title="Rename this agent">
-          <svg width="11" height="11"><use href="#i-pen"/></svg>
-        </button>
         <span class="col-status"></span>
         <span class="spacer"></span>
         <button class="mini-btn danger forget-btn" data-action="forget" title="Forget this agent" hidden>
           <svg width="9" height="9"><use href="#i-x"/></svg>FORGET
+        </button>
+      </div>
+      <div class="crt">
+        <div class="face-mount" data-face-mode="idle"></div>
+        <span class="crt-standby" hidden>STANDBY</span>
+      </div>
+      <div class="plate">
+        <span class="col-name"></span>
+        <button class="icon-btn tiny rename-btn" data-action="rename" title="Rename this agent">
+          <svg width="11" height="11"><use href="#i-pen"/></svg>
         </button>
       </div>
       <div class="col-path"></div>
@@ -143,9 +149,20 @@
         <button class="icon-btn mute-btn" data-action="mute" title="Mute this agent"><svg width="14" height="14"><use href="#i-speaker"/></svg></button>
       </div>
       <div class="col-volume">
-        <span class="k">VOLUME</span>
+        <span class="k">LEVEL</span>
         <input type="range" min="0" max="100" data-change="volume" />
+        <span class="vol-read mono"></span>
+        <span class="vol-live" title=""></span>
       </div>
+      <div class="hold-row">
+        <button class="hold-btn" data-action="hold">
+          <svg width="11" height="11" class="hold-icon"><use href="#i-pause"/></svg><span class="hold-lbl">PAUSE</span>
+        </button>
+        <div class="meter" aria-hidden="true">
+          <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+        </div>
+      </div>
+      <div class="held-strip" hidden></div>
     </div>
     <div class="col-body">
       <div class="queue-section" hidden>
