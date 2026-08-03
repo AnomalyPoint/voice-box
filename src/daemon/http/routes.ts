@@ -38,8 +38,10 @@ const speakBody = z.object({
 });
 
 const commandBody = z.discriminatedUnion("action", [
-  z.object({ action: z.literal("pause") }),
-  z.object({ action: z.literal("resume") }),
+  // With a profileId, pause/resume hold one agent's queue (boundary pause);
+  // without one they freeze the whole lane.
+  z.object({ action: z.literal("pause"), profileId: z.string().optional() }),
+  z.object({ action: z.literal("resume"), profileId: z.string().optional() }),
   z.object({ action: z.literal("skip"), id: z.string().optional() }),
   z.object({ action: z.literal("play_now"), id: z.string().min(1) }),
   z.object({ action: z.literal("clear"), profileId: z.string().optional() }),
@@ -172,11 +174,7 @@ export function buildRoutes(ctx: DaemonContext): Route[] {
           configured: status.configured,
           hint: status.hint,
         })),
-        audioBackend: {
-          id: ctx.player.backend.id,
-          label: ctx.player.backend.label,
-          executable: ctx.player.backend.executable,
-        },
+        audioBackend: ctx.player.backend,
         panelUrl: panelUrl(),
       }),
     },
@@ -188,9 +186,17 @@ export function buildRoutes(ctx: DaemonContext): Route[] {
         const command = await request.body(commandBody);
         switch (command.action) {
           case "pause":
+            if (command.profileId) {
+              ctx.scheduler.pauseAgent(command.profileId);
+              return { ok: true, pausedProfiles: ctx.scheduler.heldProfileIds };
+            }
             ctx.scheduler.pause();
             return { ok: true, paused: true };
           case "resume":
+            if (command.profileId) {
+              ctx.scheduler.resumeAgent(command.profileId);
+              return { ok: true, pausedProfiles: ctx.scheduler.heldProfileIds };
+            }
             ctx.scheduler.resume();
             return { ok: true, paused: false };
           case "skip":
@@ -219,6 +225,8 @@ export function buildRoutes(ctx: DaemonContext): Route[] {
         if (body.muted !== undefined) profile = await ctx.registry.setMuted(profileId, body.muted);
         if (body.volume !== undefined) {
           profile = await ctx.registry.setVolume(profileId, body.volume);
+          // Reaches into the clip that is already sounding, where the backend can.
+          ctx.scheduler.applyLiveVolume();
         }
         emitState();
         return { profile };

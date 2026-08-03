@@ -124,7 +124,14 @@ export interface StateResponse {
   sessions: AgentSession[];
   queue: QueueSnapshot;
   providers: { id: string; displayName: string; configured: boolean; hint: string | null }[];
-  audioBackend: { id: string; label: string; executable: string | null };
+  audioBackend: {
+    id: string;
+    label: string;
+    executable: string | null;
+    supportsVolume: boolean;
+    supportsHardPause: boolean;
+    supportsLiveVolume: boolean;
+  };
   panelUrl: string;
 }
 

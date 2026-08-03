@@ -80,6 +80,8 @@ function makeDeps(overrides: {
     createdAt: new Date().toISOString(),
     lastSeen: new Date().toISOString(),
   };
+  const profile2 = { ...profile, id: "p2", label: "Nova", volume: 1 };
+  const profiles: Record<string, typeof profile> = { p1: profile, p2: profile2 };
 
   const store = {
     config: {
@@ -99,10 +101,14 @@ function makeDeps(overrides: {
   } as unknown as ConfigStore;
 
   const registry = {
-    requireSession: (sessionId: string) => ({ sessionId, profileId: "p1" }),
+    // Session "s2" belongs to a second agent; everything else maps to p1.
+    requireSession: (sessionId: string) => ({
+      sessionId,
+      profileId: sessionId === "s2" ? "p2" : "p1",
+    }),
     touch: () => {},
-    requireProfile: () => profile,
-    getProfile: (id: string) => (id === "p1" ? profile : undefined),
+    requireProfile: (id: string) => profiles[id] ?? profile,
+    getProfile: (id: string) => profiles[id],
   } as unknown as AgentRegistry;
 
   let counter = 0;
@@ -133,7 +139,7 @@ function makeDeps(overrides: {
     logger,
   });
 
-  return { scheduler, player, appended, profile };
+  return { scheduler, player, appended, profile, profile2 };
 }
 
 async function until(condition: () => boolean, what: string): Promise<void> {
@@ -162,7 +168,7 @@ test("pause freezes the current utterance mid-word and resume continues it", asy
   assert.equal(player.plays.length, 1);
 
   scheduler.resume();
-  assert.equal(first.resumeCalls, 1, "resume must SIGCONT the frozen player");
+  assert.equal(first.resumeCalls, 1, "resume must reach the frozen player");
 
   first.resolveDone({ status: "completed" });
   await until(() => player.plays.length === 2, "queued line to play after resume");
@@ -360,4 +366,195 @@ test("playback volume is master times profile volume", async () => {
   // profile 0.8 * master 0.5
   assert.ok(Math.abs(player.plays[0]!.volume - 0.4) < 1e-9);
   player.plays[0]!.handle.resolveDone({ status: "completed" });
+});
+
+test("volume is read at play time, not frozen at enqueue time", async () => {
+  const { scheduler, player, profile } = makeDeps();
+
+  scheduler.pause();
+  await scheduler.speak({ sessionId: "s1", text: "queued before the slider moved" });
+  // The user drags the slider while the item is still queued.
+  profile.volume = 0.2;
+  scheduler.resume();
+
+  await until(() => player.plays.length === 1, "queued line to play");
+  // 0.2 (current profile) * 0.5 (master) -- not the 0.8 snapshotted at enqueue.
+  assert.ok(
+    Math.abs(player.plays[0]!.volume - 0.1) < 1e-9,
+    `expected 0.1, got ${player.plays[0]!.volume} (enqueue-time snapshot?)`,
+  );
+  player.plays[0]!.handle.resolveDone({ status: "completed" });
+});
+
+test("applyLiveVolume pushes the new volume into the playing handle", async () => {
+  const { scheduler, player, profile } = makeDeps();
+
+  const setVolumes: number[] = [];
+  const originalPlay = player.play.bind(player);
+  player.play = (file: string, options?: { volume?: number }) => {
+    const handle = originalPlay(file, options) as FakeHandle & {
+      setVolume?: (v: number) => boolean;
+    };
+    handle.setVolume = (v: number) => {
+      setVolumes.push(v);
+      return true;
+    };
+    return handle;
+  };
+
+  await scheduler.speak({ sessionId: "s1", text: "live volume" });
+  await until(() => player.plays.length === 1, "play to start");
+
+  profile.volume = 0.6;
+  scheduler.applyLiveVolume();
+  assert.equal(setVolumes.length, 1, "the live handle must receive the change");
+  assert.ok(Math.abs(setVolumes[0]! - 0.3) < 1e-9, "0.6 profile x 0.5 master");
+  player.plays[0]!.handle.resolveDone({ status: "completed" });
+});
+
+test("holding an agent finishes its sentence, then others play while it waits", async () => {
+  const { scheduler, player } = makeDeps();
+
+  await scheduler.speak({ sessionId: "s1", text: "p1 first line" });
+  await until(
+    () => player.plays.length === 1 && scheduler.snapshot().playing?.status === "playing",
+    "p1 to start speaking",
+  );
+  await scheduler.speak({ sessionId: "s1", text: "p1 second line" });
+  await scheduler.speak({ sessionId: "s2", text: "p2 first line" });
+
+  scheduler.pauseAgent("p1");
+  const snap = scheduler.snapshot();
+  assert.deepEqual(snap.pausedProfiles, ["p1"]);
+  assert.equal(snap.playing?.text, "p1 first line", "the current sentence must finish");
+  assert.equal(player.plays[0]!.handle.stopped, false, "a hold must never cut audio mid-word");
+
+  player.plays[0]!.handle.resolveDone({ status: "completed" });
+  await until(() => player.plays.length === 2, "the other agent to take the lane");
+  assert.equal(player.plays[1]?.file, "/tmp/audio-p2 first line.mp3");
+  player.plays[1]!.handle.resolveDone({ status: "completed" });
+
+  // p1's backlog stays put -- and stays visible, sorted after playable items.
+  for (let i = 0; i < 20; i++) await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(player.plays.length, 2, "held agent must not play");
+  const pending = scheduler.snapshot().pending;
+  assert.equal(pending.length, 1);
+  assert.equal(pending[0]?.text, "p1 second line");
+
+  scheduler.resumeAgent("p1");
+  await until(() => player.plays.length === 3, "held line to play after resume");
+  assert.equal(player.plays[2]?.file, "/tmp/audio-p1 second line.mp3");
+  player.plays[2]!.handle.resolveDone({ status: "completed" });
+});
+
+test("held items sort after every playable item in the panel order", async () => {
+  const { scheduler } = makeDeps();
+
+  scheduler.pause();
+  await scheduler.speak({ sessionId: "s1", text: "p1 a" });
+  await scheduler.speak({ sessionId: "s1", text: "p1 b" });
+  await scheduler.speak({ sessionId: "s2", text: "p2 a" });
+
+  scheduler.pauseAgent("p1");
+  const pending = scheduler.snapshot().pending;
+  assert.equal(pending.length, 3, "held items must stay visible");
+  assert.equal(pending[0]?.text, "p2 a", "playable items come first");
+  assert.equal(pending[1]?.text, "p1 a");
+  assert.equal(pending[2]?.text, "p1 b");
+});
+
+test("a hung player cannot wedge the lane: the watchdog recovers it", async (t) => {
+  t.mock.timers.enable({ apis: ["setInterval", "Date"] });
+  const { scheduler, player, appended } = makeDeps();
+
+  await scheduler.speak({ sessionId: "s1", text: "this player hangs" });
+  await until(() => player.plays.length === 1, "play to start");
+
+  // Never resolve the handle. Advance mocked time past the 120s floor.
+  t.mock.timers.tick(150_000);
+  await until(() => appended.length === 1, "the watchdog to settle the item");
+  assert.equal(appended[0]?.status, "failed");
+  assert.equal(player.plays[0]!.handle.stopped, true, "the wedged process must be stopped");
+
+  // The lane must still work afterwards.
+  await scheduler.speak({ sessionId: "s1", text: "recovered" });
+  await until(() => player.plays.length === 2, "the lane to recover");
+  player.plays[1]!.handle.resolveDone({ status: "completed" });
+});
+
+test("global pause with a boundary-only backend lets the sentence finish, then holds", async () => {
+  const { scheduler, player } = makeDeps();
+  // Simulate afplay: no control channel, pause() reports failure.
+  const originalPlay = player.play.bind(player);
+  player.play = (file: string, options?: { volume?: number }) => {
+    const handle = originalPlay(file, options) as FakeHandle;
+    handle.pause = () => false;
+    return handle;
+  };
+
+  await scheduler.speak({ sessionId: "s1", text: "boundary line" });
+  await until(
+    () => player.plays.length === 1 && scheduler.snapshot().playing?.status === "playing",
+    "line to start",
+  );
+  await scheduler.speak({ sessionId: "s1", text: "next line" });
+
+  scheduler.pause();
+  assert.equal(scheduler.snapshot().paused, true);
+  assert.equal(scheduler.snapshot().frozenMidUtterance, false, "no freeze without a control channel");
+  assert.equal(player.plays[0]!.handle.stopped, false, "the sentence must be allowed to finish");
+
+  player.plays[0]!.handle.resolveDone({ status: "completed" });
+  for (let i = 0; i < 20; i++) await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(player.plays.length, 1, "nothing new may start while paused");
+
+  scheduler.resume();
+  await until(() => player.plays.length === 2, "queue to continue after resume");
+  player.plays[1]!.handle.resolveDone({ status: "completed" });
+});
+
+test("a hold dies with its agent: session end clears it and items expire again", async () => {
+  const { scheduler } = makeDeps();
+
+  scheduler.pause();
+  await scheduler.speak({ sessionId: "s1", text: "left behind" });
+  scheduler.pauseAgent("p1");
+  assert.deepEqual(scheduler.snapshot().pausedProfiles, ["p1"]);
+
+  scheduler.onSessionEnd("p1");
+  assert.deepEqual(
+    scheduler.snapshot().pausedProfiles,
+    [],
+    "a hold outliving its agent would immortalize its queue items",
+  );
+});
+
+test("speaking while held returns immediately with a warning instead of hanging", async () => {
+  const { scheduler } = makeDeps();
+
+  scheduler.pauseAgent("p1");
+  const started = Date.now();
+  const outcome = await scheduler.speak({ sessionId: "s1", text: "patient line", wait: "played" });
+  assert.ok(Date.now() - started < 1_000, "must not sit on the wait:'played' deadline");
+  assert.equal(outcome.status, "queued");
+  assert.match(outcome.warning ?? "", /paused/i);
+});
+
+test("skip stops a sounding replay and leaves the agent queue alone", async () => {
+  const { scheduler, player } = makeDeps();
+
+  scheduler.pause();
+  await scheduler.speak({ sessionId: "s1", text: "queued line" });
+  await scheduler.playUserAudio({
+    label: "Max (replay)",
+    text: "memo",
+    file: "/tmp/replay.mp3",
+    volume: 0.4,
+  });
+  assert.equal(scheduler.snapshot().userPlayback?.label, "Max (replay)");
+
+  assert.equal(scheduler.skip(), true, "skip must act on the audible replay");
+  assert.equal(player.plays[0]!.handle.stopped, true);
+  assert.equal(scheduler.snapshot().userPlayback, null);
+  assert.equal(scheduler.snapshot().pending.length, 1, "the agent queue must survive the skip");
 });

@@ -21,9 +21,12 @@ export function createCommandPlayer(detected: DetectedBackend, logger: Logger): 
       label: spec.label,
       executable,
       supportsVolume: spec.supportsVolume,
-      // SIGSTOP has no Windows equivalent; the scheduler falls back to
-      // pausing at the utterance boundary there.
-      supportsHardPause: !isWindows,
+      // Spawn-and-wait players have no control channel. Hard pause used to be
+      // SIGSTOP here, but freezing afplay's CoreAudio threads glitches the
+      // stream and can wedge the process past recovery -- the scheduler now
+      // pauses at the utterance boundary for these backends instead.
+      supportsHardPause: false,
+      supportsLiveVolume: false,
     },
 
     play(file, options = {}): PlaybackHandle {
@@ -38,7 +41,6 @@ export function createCommandPlayer(detected: DetectedBackend, logger: Logger): 
 
       let settled = false;
       let stopRequested = false;
-      let paused = false;
       let killTimer: NodeJS.Timeout | undefined;
       let stderr = "";
 
@@ -102,9 +104,7 @@ export function createCommandPlayer(detected: DetectedBackend, logger: Logger): 
 
       const handle: PlaybackHandle = {
         done,
-        get paused() {
-          return paused;
-        },
+        paused: false,
 
         stop() {
           if (settled || stopRequested) return;
@@ -114,17 +114,6 @@ export function createCommandPlayer(detected: DetectedBackend, logger: Logger): 
           if (pid === undefined) {
             finish({ status: "stopped" });
             return;
-          }
-
-          // A SIGSTOPped process cannot act on SIGTERM -- resume it first or
-          // the graceful path silently degrades into the SIGKILL fallback.
-          if (paused && !isWindows) {
-            try {
-              child.kill("SIGCONT");
-            } catch {
-              /* already gone */
-            }
-            paused = false;
           }
 
           if (isWindows) {
@@ -148,28 +137,12 @@ export function createCommandPlayer(detected: DetectedBackend, logger: Logger): 
           killTimer.unref();
         },
 
+        // No control channel: the scheduler holds at the utterance boundary.
         pause() {
-          if (isWindows || settled || paused) return false;
-          try {
-            child.kill("SIGSTOP");
-            paused = true;
-            return true;
-          } catch (error) {
-            logger.debug("hard pause failed", { error });
-            return false;
-          }
+          return false;
         },
-
         resume() {
-          if (isWindows || settled || !paused) return false;
-          try {
-            child.kill("SIGCONT");
-            paused = false;
-            return true;
-          } catch (error) {
-            logger.debug("resume failed", { error });
-            return false;
-          }
+          return false;
         },
       };
 

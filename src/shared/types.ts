@@ -149,11 +149,16 @@ export interface UserPlayback {
 
 export interface QueueSnapshot {
   playing: Utterance | null;
-  /** In actual play order -- what the panel's #1/#2/#3 badges show. */
+  /**
+   * In actual play order -- what the panel's #1/#2/#3 badges show. Held
+   * agents' items sort after everything playable.
+   */
   pending: Utterance[];
   paused: boolean;
   /** True when the current utterance is frozen mid-word by a hard pause. */
   frozenMidUtterance: boolean;
+  /** Agents held by a per-agent pause; their queues wait while others play. */
+  pausedProfiles: string[];
   /** Set while a replay/preview is sounding outside the agent queue. */
   userPlayback: UserPlayback | null;
 }

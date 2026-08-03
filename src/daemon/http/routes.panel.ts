@@ -15,7 +15,12 @@ const SESSION_COOKIE = "voicebox_token";
 
 const sessionBody = z.object({ token: z.string().min(1) });
 const secretBody = z.object({ apiKey: z.string().min(8) });
-const previewBody = z.object({ voice: voiceSelectionSchema, text: z.string().max(200).optional() });
+const previewBody = z.object({
+  voice: voiceSelectionSchema,
+  text: z.string().max(200).optional(),
+  /** When previewing from an agent's card, honour that agent's volume. */
+  profileId: z.string().optional(),
+});
 const replayBody = z.object({ historyId: z.string().min(1) });
 
 const configPatchBody = z.object({
@@ -127,6 +132,8 @@ export function buildPanelRoutes(ctx: DaemonContext): Route[] {
           },
           voice: { ...draft.voice, ...patch.voice },
         }));
+        // Master volume reaches into the current clip, where the backend can.
+        if (patch.audio?.volume !== undefined) ctx.scheduler.applyLiveVolume();
         ctx.hub.emit("config", { config: next });
         return { config: next };
       },
@@ -271,11 +278,15 @@ export function buildPanelRoutes(ctx: DaemonContext): Route[] {
         // over an agent -- the old direct-play version did exactly that.
         const text = body.text ?? "This is how this voice sounds.";
         const audio = await ctx.synthesizer.synthesize(text, body.voice);
+        // Same math as replay: profile volume (when known) x master.
+        const profileVolume = body.profileId
+          ? (ctx.registry.getProfile(body.profileId)?.volume ?? 1)
+          : 1;
         const status = await ctx.scheduler.playUserAudio({
           label: "voice preview",
           text,
           file: audio.file,
-          volume: ctx.store.config.audio.volume,
+          volume: profileVolume * ctx.store.config.audio.volume,
         });
         return { ok: true, status, audioKey: audio.key };
       },
@@ -291,6 +302,8 @@ export function buildPanelRoutes(ctx: DaemonContext): Route[] {
           throw new VoiceBoxError("invalid_input", "That agent is currently connected.");
         }
         await ctx.registry.removeProfile(profileId);
+        // A hold must not outlive its agent (it would immortalize queue items).
+        ctx.scheduler.dropHold(profileId);
         ctx.hub.emit("state", { removed: profileId });
         return { ok: true };
       },

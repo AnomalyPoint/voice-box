@@ -224,3 +224,65 @@ test("round-robin keeps rotating across three agents", () => {
     assert.equal(window.size, 3, `expected a fair rotation, got ${order.join("")}`);
   }
 });
+
+test("dequeue never serves a held agent; listInPlayOrder agrees", () => {
+  const queue = new UtteranceQueue(limits());
+  queue.enqueue(input("A", "a1"), T0 + 1001);
+  queue.enqueue(input("A", "a2"), T0 + 1002);
+  queue.enqueue(input("B", "b1"), T0 + 1003);
+  const held = new Set(["A"]);
+
+  // The panel order must mirror dequeue exactly: playable first, held after.
+  const listed = queue.listInPlayOrder(T0 + 10, held).map((item) => `${item.profileId}:${item.text}`);
+  assert.deepEqual(listed, ["B:b1", "A:a1", "A:a2"]);
+
+  assert.equal(queue.dequeue(T0 + 10, held)?.text, "b1");
+  assert.equal(queue.dequeue(T0 + 10, held), null, "held items must never be served");
+  assert.equal(queue.depth, 2, "held items stay in the queue");
+
+  // Releasing the hold serves the backlog FIFO.
+  assert.equal(queue.dequeue(T0 + 10)?.text, "a1");
+  assert.equal(queue.dequeue(T0 + 10)?.text, "a2");
+});
+
+test("a promoted item overrides its agent's hold", () => {
+  const queue = new UtteranceQueue(limits());
+  const target = queue.enqueue(input("A", "play me"), T0 + 1001);
+  queue.enqueue(input("B", "b1"), T0 + 1002);
+  assert.ok(target.ok);
+
+  queue.promote(target.item.id);
+  // "Play now" is an explicit user override of the hold.
+  assert.equal(queue.dequeue(T0 + 10, new Set(["A"]))?.text, "play me");
+});
+
+test("held agents are exempt from the TTL sweep and get the time credited back", () => {
+  const queue = new UtteranceQueue(limits());
+  queue.enqueue(input("A", "a1", { ttlMs: 1000 }), T0);
+  queue.enqueue(input("B", "b1", { ttlMs: 1000 }), T0);
+  const held = new Set(["A"]);
+
+  // Way past both TTLs: only the unheld agent's item may expire.
+  const expired = queue.sweepExpired(T0 + 60_000, held);
+  assert.deepEqual(expired.map((item) => item.profileId), ["B"]);
+  assert.equal(queue.depth, 1, "the held item must survive the sweep");
+
+  // Credit the held time back; the item is then playable, not instantly stale.
+  queue.extendTtl("A", 60_000);
+  assert.equal(queue.dequeue(T0 + 60_500)?.text, "a1");
+});
+
+test("play-now serves a held item even after its TTL lapsed while held", () => {
+  const queue = new UtteranceQueue(limits());
+  const target = queue.enqueue(input("A", "old but promoted", { ttlMs: 1000 }), T0);
+  assert.ok(target.ok);
+  const held = new Set(["A"]);
+
+  // The panel (listInPlayOrder with the held set) still shows the item, so a
+  // "play now" click on it must not silently vanish.
+  const listed = queue.listInPlayOrder(T0 + 60_000, held);
+  assert.equal(listed.length, 1, "precondition: the panel would show this item");
+
+  queue.promote(target.item.id);
+  assert.equal(queue.dequeue(T0 + 60_000, held)?.text, "old but promoted");
+});

@@ -4,7 +4,7 @@ import { VoiceBoxError, toVoiceBoxError, errorMessage } from "../../shared/error
 import type { Logger } from "../../shared/log.js";
 import type { Priority, QueueSnapshot, UserPlayback, WaitMode } from "../../shared/types.js";
 import { isTerminal } from "../../shared/types.js";
-import type { AudioPlayer, PlaybackHandle } from "../audio/index.js";
+import type { AudioPlayer, PlaybackHandle, PlaybackOutcome } from "../audio/index.js";
 import type { ConfigStore } from "../config/store.js";
 import type { HistoryEntry, HistoryLog } from "./history.js";
 import { voiceLabel } from "./history.js";
@@ -13,8 +13,9 @@ import { UtteranceQueue, toUtterance, type QueueItem } from "./queue.js";
 import type { Synthesizer } from "./synthesizer.js";
 
 /**
- * Rough speaking rate used only for queue ETAs. Around 150 words per minute at
- * ~5.5 characters per word. Never used for control flow -- only display.
+ * Rough speaking rate, around 150 words per minute at ~5.5 characters per
+ * word. Used for queue ETAs and as the base of the playback watchdog's
+ * deliberately generous upper bound -- never for anything tighter.
  */
 const CHARS_PER_SECOND = 14;
 
@@ -67,8 +68,17 @@ export class Scheduler {
   private handle: PlaybackHandle | null = null;
   private skipRequested = false;
   private paused = false;
-  /** True while the current utterance is suspended mid-word (SIGSTOP). */
+  /** True while the current utterance is frozen mid-word (mpv IPC pause). */
   private frozen = false;
+  /** True when the global pause also froze a replay/preview mid-word. */
+  private userFrozen = false;
+  /**
+   * Agents held by a per-agent pause: their queued items stay put while other
+   * agents keep playing. Value is when the hold started, so held time can be
+   * credited back to TTLs on resume. Deliberately not persisted -- like
+   * sessions, holds die with the daemon.
+   */
+  private readonly heldProfiles = new Map<string, number>();
   /** Abort for the in-flight synthesis, so skip works before audio exists. */
   private synthAbort: AbortController | null = null;
   /** The user lane: replay/preview audio playing outside the agent queue. */
@@ -121,33 +131,92 @@ export class Scheduler {
   }
 
   /**
-   * Freeze the current utterance mid-word where the platform allows it
-   * (SIGSTOP on the player process); where it does not (Windows), the current
-   * line finishes and the pump halts at the utterance boundary. Either way the
-   * queue holds until resume() and agents keep enqueueing normally.
+   * Freeze the current utterance mid-word where the backend has a control
+   * channel (mpv IPC); elsewhere the current line finishes and the pump halts
+   * at the utterance boundary. Either way the queue holds until resume() and
+   * agents keep enqueueing normally.
    */
   pause(): void {
     if (this.paused) return;
     this.paused = true;
     this.frozen = this.handle?.pause() ?? false;
+    // Freeze the user lane too: audio still sounding under a PAUSED banner
+    // reads as broken. Where the backend cannot freeze, it plays out.
+    this.userFrozen = this.userHandle?.pause() ?? false;
     this.emitChange();
   }
 
-  /** Return to the live queue. Cuts short any replay/preview in progress. */
+  /**
+   * Return to the live queue. A replay frozen by the pause picks back up; a
+   * replay started *while* paused is cut short -- resuming means "back to the
+   * agents", not "talk over the memo I asked for".
+   */
   resume(): void {
     if (!this.paused) return;
     this.paused = false;
-    this.stopUserPlayback();
-    if (this.frozen) {
-      this.frozen = false;
-      this.handle?.resume();
+    if (this.userFrozen) {
+      this.userFrozen = false;
+      this.userHandle?.resume();
+    } else {
+      this.stopUserPlayback();
     }
+    this.frozen = false;
+    this.handle?.resume();
     this.events.emit("release-hold");
     this.emitChange();
     void this.pump();
   }
 
+  /**
+   * Hold one agent's queue without touching the others. The sentence being
+   * spoken finishes first -- with a single playback lane, cutting it off would
+   * either restart it later from scratch or silence an unrelated agent.
+   */
+  pauseAgent(profileId: string): void {
+    if (this.heldProfiles.has(profileId)) return;
+    this.heldProfiles.set(profileId, Date.now());
+    this.emitChange();
+  }
+
+  resumeAgent(profileId: string): void {
+    const heldAt = this.heldProfiles.get(profileId);
+    if (heldAt === undefined) return;
+    this.heldProfiles.delete(profileId);
+    // Credit the held time back, so a long hold does not mass-expire the queue.
+    this.queue.extendTtl(profileId, Date.now() - heldAt);
+    this.emitChange();
+    void this.pump();
+  }
+
+  /**
+   * Forget a hold without the resume ceremony. Called when the agent stops
+   * existing (disconnect, FORGET) -- a hold that outlives its agent would
+   * exempt that agent's items from expiry forever, leaving invisible
+   * immortal entries inflating every queue count.
+   */
+  dropHold(profileId: string): void {
+    if (!this.heldProfiles.delete(profileId)) return;
+    this.emitChange();
+    void this.pump();
+  }
+
+  get heldProfileIds(): string[] {
+    return [...this.heldProfiles.keys()];
+  }
+
+  private heldSet(): ReadonlySet<string> {
+    return new Set(this.heldProfiles.keys());
+  }
+
   skip(id?: string): boolean {
+    // Skip means "skip what is sounding". When that is a replay/preview --
+    // including one frozen by pause, which playItem may be blocked behind --
+    // stop the user lane; the agent queue is untouched.
+    if (!id && this.userHandle) {
+      this.stopUserPlayback();
+      this.emitChange();
+      return true;
+    }
     if (!id || this.playing?.id === id) {
       if (!this.playing) return false;
       this.skipRequested = true;
@@ -210,6 +279,7 @@ export class Scheduler {
         if (this.userHandle === handle) {
           this.userHandle = null;
           this.userPlayback = null;
+          this.userFrozen = false;
           this.emitChange();
         }
       });
@@ -243,6 +313,8 @@ export class Scheduler {
 
   /** Drop an agent's low-value backlog when its MCP process disconnects. */
   onSessionEnd(profileId: string): void {
+    // Holds die with the agent, like sessions do.
+    this.dropHold(profileId);
     if (!this.deps.store.config.queue.purgeOnDisconnect) return;
     const purged = this.queue.purgeForSession(profileId);
     for (const item of purged) this.settle(item, "dropped", "agent disconnected");
@@ -254,11 +326,27 @@ export class Scheduler {
   snapshot(): QueueSnapshot {
     return {
       playing: this.playing ? toUtterance(this.playing) : null,
-      pending: this.queue.listInPlayOrder().map(toUtterance),
+      pending: this.queue.listInPlayOrder(Date.now(), this.heldSet()).map(toUtterance),
       paused: this.paused,
       frozenMidUtterance: this.frozen,
+      pausedProfiles: this.heldProfileIds,
       userPlayback: this.userPlayback,
     };
+  }
+
+  /**
+   * Push volume changes into audio that is already playing, where the backend
+   * can. Called when a per-agent or master volume slider moves, so the change
+   * is audible immediately instead of from the next utterance.
+   */
+  applyLiveVolume(): void {
+    const item = this.playing;
+    if (!item || !this.handle?.setVolume) return;
+    const master = item.ephemeral ? 1 : this.deps.store.config.audio.volume;
+    const agentVolume = item.ephemeral
+      ? item.volume
+      : (this.deps.registry.getProfile(item.profileId)?.volume ?? item.volume);
+    this.handle.setVolume(agentVolume * master);
   }
 
   // --- Enqueue -------------------------------------------------------------
@@ -333,6 +421,16 @@ export class Scheduler {
 
     if (wait === "none") return outcome;
 
+    // A held agent's items settle only when the user resumes it -- waiting on
+    // that would hang this tool call for its full deadline and backpressure
+    // would never relieve. Return truthfully instead.
+    if (this.heldProfiles.has(profile.id)) {
+      return {
+        ...outcome,
+        warning: "This agent is paused in the control panel; the message plays after it is resumed.",
+      };
+    }
+
     if (wait === "played") {
       const finished = await this.waitForTerminal(result.item.id);
       if (!finished) {
@@ -383,7 +481,7 @@ export class Scheduler {
           continue;
         }
         this.expireStale();
-        const item = this.queue.dequeue();
+        const item = this.queue.dequeue(Date.now(), this.heldSet());
         if (!item) break;
         await this.playItem(item);
       }
@@ -465,11 +563,14 @@ export class Scheduler {
     item.status = "playing";
     this.emitChange();
 
-    // User-lane volume arrives pre-multiplied by the routes; agent items get
-    // master applied here.
+    // Volume is read here, at play time, not from the enqueue-time snapshot:
+    // moving an agent's slider must affect everything that has not sounded
+    // yet. User-lane volume arrives pre-multiplied by the routes; agent items
+    // get profile x master applied here.
     const master = item.ephemeral ? 1 : this.deps.store.config.audio.volume;
-    this.handle = this.deps.player.play(file, { volume: item.volume * master });
-    const outcome = await this.handle.done;
+    const agentVolume = item.ephemeral ? item.volume : (profile?.volume ?? item.volume);
+    this.handle = this.deps.player.play(file, { volume: agentVolume * master });
+    const outcome = await this.watchPlayback(this.handle, item);
     this.handle = null;
     this.frozen = false;
     this.playing = null;
@@ -488,6 +589,48 @@ export class Scheduler {
         this.settle(item, "failed", outcome.error.message);
         break;
     }
+  }
+
+  /**
+   * Wait for playback to end, with a watchdog. A player process that hangs
+   * (afplay wedged by a CoreAudio hiccup, a stalled pipe) used to block the
+   * one playback lane forever -- nothing would speak again until a restart.
+   * Time spent paused does not count against the limit.
+   */
+  private watchPlayback(handle: PlaybackHandle, item: QueueItem): Promise<PlaybackOutcome> {
+    // Generous on purpose: the duration is a chars-per-second guess, and a
+    // slow voice must never be truncated mid-sentence and logged as failed.
+    // This only needs to catch the pathological case (a wedged process).
+    const limitMs = Math.max(120_000, this.durationOf(item) * 4 * 1000 + 30_000);
+    return new Promise((resolve) => {
+      let unpausedMs = 0;
+      let last = Date.now();
+      const timer = setInterval(() => {
+        const now = Date.now();
+        if (!this.paused && !handle.paused) unpausedMs += now - last;
+        last = now;
+        if (unpausedMs >= limitMs) {
+          clearInterval(timer);
+          this.deps.logger.warn("playback watchdog fired -- recovering the lane", {
+            id: item.id,
+            agent: item.agentLabel,
+          });
+          handle.stop();
+          resolve({
+            status: "failed",
+            error: new VoiceBoxError(
+              "playback_failed",
+              "The audio player stopped responding; playback was recovered.",
+            ),
+          });
+        }
+      }, 1_000);
+      timer.unref();
+      void handle.done.then((outcome) => {
+        clearInterval(timer);
+        resolve(outcome);
+      });
+    });
   }
 
   private async synthesizeWithRetry(item: QueueItem, signal: AbortSignal) {
@@ -515,6 +658,7 @@ export class Scheduler {
   }
 
   private stopUserPlayback(): void {
+    this.userFrozen = false;
     if (!this.userHandle) return;
     const handle = this.userHandle;
     this.userHandle = null;
@@ -534,7 +678,8 @@ export class Scheduler {
   }
 
   private expireStale(): void {
-    const expired = this.queue.sweepExpired();
+    // Held agents are exempt: their items are waiting on the user, not stale.
+    const expired = this.queue.sweepExpired(Date.now(), this.heldSet());
     if (expired.length === 0) return;
     for (const item of expired) {
       this.settle(item, "expired", "too old to still be useful");
@@ -583,13 +728,15 @@ export class Scheduler {
   }
 
   private positionOf(id: string): number {
-    const index = this.queue.listInPlayOrder().findIndex((item) => item.id === id);
+    const index = this.queue
+      .listInPlayOrder(Date.now(), this.heldSet())
+      .findIndex((item) => item.id === id);
     return index === -1 ? 0 : index + 1;
   }
 
   private estimateEta(id: string): number {
     let seconds = this.playing ? this.durationOf(this.playing) / 2 : 0;
-    for (const item of this.queue.listInPlayOrder()) {
+    for (const item of this.queue.listInPlayOrder(Date.now(), this.heldSet())) {
       if (item.id === id) break;
       seconds += this.durationOf(item);
     }

@@ -92,9 +92,13 @@ export class UtteranceQueue {
    * The pending items in the order dequeue() will actually serve them, without
    * mutating queue state. This is what the panel's #1/#2/#3 badges show --
    * insertion order lies whenever priorities or multiple agents are involved.
+   *
+   * Held agents' items are appended after every playable item, grouped per
+   * agent in FIFO order: the panel still shows them (badged as held), but they
+   * can never appear ahead of something that will actually play first.
    */
-  listInPlayOrder(now = Date.now()): QueueItem[] {
-    const remaining = this.pending.filter((item) => item.expiresAt > now);
+  listInPlayOrder(now = Date.now(), held?: ReadonlySet<string>): QueueItem[] {
+    const remaining = this.pending.filter((item) => item.expiresAt > now || held?.has(item.profileId));
     const served = new Map(this.lastServed);
     let counter = this.serveCounter;
     const ordered: QueueItem[] = [];
@@ -110,11 +114,17 @@ export class UtteranceQueue {
       if (front) take(front);
     }
     for (;;) {
-      const next = selectNext(remaining, served, now);
+      const next = selectNext(remaining, served, now, held);
       if (!next) break;
       take(next);
     }
-    return ordered;
+    // Whatever is left belongs to held agents: stable, FIFO within each agent.
+    remaining.sort((a, b) =>
+      a.profileId === b.profileId
+        ? a.enqueuedAt - b.enqueuedAt
+        : a.profileId.localeCompare(b.profileId),
+    );
+    return [...ordered, ...remaining];
   }
 
   /** Mark an item to be served before everything else. Replaces any prior mark. */
@@ -161,12 +171,17 @@ export class UtteranceQueue {
    * Expired items are never returned -- callers should sweep first, but this
    * double-checks because expiry is time-based and the sweep is periodic.
    */
-  dequeue(now = Date.now()): QueueItem | null {
-    // A promoted item beats everything. The mark is one-shot: it clears whether
-    // the item is served, was removed, or expired in the meantime.
+  dequeue(now = Date.now(), held?: ReadonlySet<string>): QueueItem | null {
+    // A promoted item beats everything -- including its agent's hold, which a
+    // "play now" click plainly overrides. A held item also gets the same TTL
+    // grace here that listInPlayOrder gives it: the panel showed it as
+    // playable, so the click must not silently no-op on an expired-while-held
+    // item. The mark is one-shot: it clears whether the item is served, was
+    // removed, or expired in the meantime.
     if (this.frontId) {
       const front = this.pending.find(
-        (item) => item.id === this.frontId && item.expiresAt > now,
+        (item) =>
+          item.id === this.frontId && (item.expiresAt > now || held?.has(item.profileId)),
       );
       this.frontId = null;
       if (front) {
@@ -176,7 +191,7 @@ export class UtteranceQueue {
       }
     }
 
-    const next = selectNext(this.pending, this.lastServed, now);
+    const next = selectNext(this.pending, this.lastServed, now, held);
     if (!next) return null;
     this.remove(next.id);
     this.lastServed.set(next.profileId, ++this.serveCounter);
@@ -189,14 +204,24 @@ export class UtteranceQueue {
     return this.pending.splice(index, 1)[0] ?? null;
   }
 
-  /** Remove and return everything past its TTL. */
-  sweepExpired(now = Date.now()): QueueItem[] {
-    const expired = this.pending.filter((item) => item.expiresAt <= now);
+  /** Remove and return everything past its TTL. Held agents are exempt. */
+  sweepExpired(now = Date.now(), held?: ReadonlySet<string>): QueueItem[] {
+    const expired = this.pending.filter(
+      (item) => item.expiresAt <= now && !held?.has(item.profileId),
+    );
     if (expired.length > 0) {
       const ids = new Set(expired.map((item) => item.id));
       this.pending = this.pending.filter((item) => !ids.has(item.id));
     }
     return expired;
+  }
+
+  /** Push one agent's deadlines out, crediting back time spent held. */
+  extendTtl(profileId: string, byMs: number): void {
+    if (byMs <= 0) return;
+    for (const item of this.pending) {
+      if (item.profileId === profileId) item.expiresAt += byMs;
+    }
   }
 
   clear(profileId?: string): QueueItem[] {
@@ -243,9 +268,13 @@ function selectNext(
   pending: readonly QueueItem[],
   lastServed: ReadonlyMap<string, number>,
   now: number,
+  held?: ReadonlySet<string>,
 ): QueueItem | null {
   for (const band of BANDS) {
-    const candidates = pending.filter((item) => item.priority === band && item.expiresAt > now);
+    const candidates = pending.filter(
+      (item) =>
+        item.priority === band && item.expiresAt > now && !held?.has(item.profileId),
+    );
     if (candidates.length === 0) continue;
 
     // Least-recently-served agent first; ties broken by arrival order.

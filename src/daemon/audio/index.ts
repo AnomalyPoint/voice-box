@@ -2,7 +2,8 @@ import { VoiceBoxError } from "../../shared/errors.js";
 import type { Logger } from "../../shared/log.js";
 import { findBackendSpec } from "./backends.js";
 import { createCommandPlayer } from "./commandPlayer.js";
-import { detectBackends, resolveExecutable, type DetectionReport } from "./detect.js";
+import { createMpvIpcPlayer, probeMpvIpc } from "./mpvIpcPlayer.js";
+import { detectBackends, resolveExecutable, type DetectionReport, type DetectedBackend } from "./detect.js";
 import { createNullPlayer } from "./nullPlayer.js";
 import type { AudioPlayer, AudioBackendSpec } from "./types.js";
 
@@ -45,10 +46,25 @@ export async function resolveAudioPlayer(options: ResolvePlayerOptions): Promise
     });
   }
 
+  // mpv gets the IPC treatment: it is the one backend with a control channel,
+  // which is what makes glitch-free pause and live volume possible. Probe the
+  // capability first -- an mpv without --input-ipc-server would otherwise
+  // reject its own argv and fail every utterance. Such a build still works
+  // fine as a plain spawn-and-wait player.
+  const playerFor = async (entry: DetectedBackend): Promise<AudioPlayer> => {
+    if (entry.spec.id === "mpv") {
+      if (await probeMpvIpc(entry.executable)) return createMpvIpcPlayer(entry, logger);
+      logger.warn("mpv has no IPC support; using it without live pause/volume", {
+        executable: entry.executable,
+      });
+    }
+    return createCommandPlayer(entry, logger);
+  };
+
   if (preferred && preferred !== "auto") {
     const match = report.available.find((entry) => entry.spec.id === preferred);
     if (match) {
-      return { player: createCommandPlayer(match, logger), report };
+      return { player: await playerFor(match), report };
     }
     const known = findBackendSpec(preferred);
     logger.warn("configured audio backend is unavailable -- falling back", {
@@ -57,10 +73,14 @@ export async function resolveAudioPlayer(options: ResolvePlayerOptions): Promise
     });
   }
 
-  const first = report.available[0];
+  // Auto: prefer mpv when installed -- instant pause and live volume beat the
+  // OS-shipped players' marginally faster cold start. Everything else keeps
+  // the platform preference order.
+  const mpv = report.available.find((entry) => entry.spec.id === "mpv");
+  const first = mpv ?? report.available[0];
   if (first) {
     logger.info("audio backend selected", { backend: first.spec.id, executable: first.executable });
-    return { player: createCommandPlayer(first, logger), report };
+    return { player: await playerFor(first), report };
   }
 
   const reason = describeMissingBackends(report);

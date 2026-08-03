@@ -13,13 +13,17 @@ export interface PlaybackHandle {
   /** Terminate playback now. Idempotent. */
   stop(): void;
   /**
-   * Suspend the player process mid-utterance (POSIX SIGSTOP).
-   * Returns false where unsupported (Windows) -- callers fall back to
-   * pausing at the utterance boundary instead.
+   * Suspend playback mid-utterance through the player's own control channel
+   * (mpv IPC). Returns false where the backend has no such channel -- callers
+   * fall back to pausing at the utterance boundary instead. Never implemented
+   * via SIGSTOP: freezing a CoreAudio client's threads glitches the stream and
+   * can wedge the process beyond recovery.
    */
   pause(): boolean;
   resume(): boolean;
   readonly paused: boolean;
+  /** Change the volume of audio that is already playing, where supported. */
+  setVolume?(volume: number): boolean;
 }
 
 /** A concrete way to get an MP3 file out of the speakers on this machine. */
@@ -42,7 +46,10 @@ export interface AudioBackendInfo {
   /** Absolute path of the resolved executable, or null for the null backend. */
   executable: string | null;
   supportsVolume: boolean;
+  /** True when pause freezes audio mid-word instead of at the sentence boundary. */
   supportsHardPause: boolean;
+  /** True when volume changes apply to the clip that is already playing. */
+  supportsLiveVolume: boolean;
 }
 
 export interface AudioPlayer {

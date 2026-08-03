@@ -16,6 +16,7 @@ export function createNullPlayer(logger: Logger, reason: string): AudioPlayer {
       executable: null,
       supportsVolume: false,
       supportsHardPause: false,
+      supportsLiveVolume: false,
     },
 
     play(file): PlaybackHandle {
